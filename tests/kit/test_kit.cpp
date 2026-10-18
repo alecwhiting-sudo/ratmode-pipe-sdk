@@ -417,6 +417,8 @@ TEST(helpers_pitch_smoother_dcblock_lfo_guard)
     float n = 0.0f; for (int i = 0; i < 48000; ++i) n = g.tickNote();
     CHECK_NEAR(n, 60.0f, 1e-3);
     g.noteOn(36.0f, false); CHECK_NEAR(g.tickNote(), 36.0f, 1e-6);
+    g.reset(); g.noteOn(72.0f, true); CHECK_NEAR(g.tickNote(), 72.0f, 1e-6);   // after reset a slide has nothing to slide from: jumps
+    CHECK(!g.isGliding());
 
     OnePole s; s.setTime(10.0f, 48000.0); s.snap(0.0f);
     float v = 0.0f; for (int i = 0; i < 480; ++i) v = s.process(1.0f);

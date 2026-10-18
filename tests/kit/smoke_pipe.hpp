@@ -2,6 +2,11 @@
 // tests load through the C ABI, what build.sh turns into a shared library to
 // prove only `ratpipe_entry` is exported, and what the Mach-O cross-build probe
 // feeds to RatMode's ExtMachOCheck. Mono PolyBLEP saw -> ladder -> tanh.
+//
+// It declares DETERMINISTIC_WITH_SEED: it has no noise source, and onAllOff
+// (also run for FLUSH) returns every block — oscillator phase, glide, filter,
+// envelope, DC blocker — to the constructed state, so after ALL_OFF + FLUSH a
+// re-used instance is sample-identical to a fresh one (validator V9/V11).
 #pragma once
 #include "ratpipe/pipe_base.hpp"
 #include "ratpipe/kit/kit.hpp"
@@ -15,7 +20,7 @@ class SmokePipe : public ratpipe::Pipe<SmokePipe, SP_COUNT>
 public:
     static constexpr ratpipe::PipeInfo kInfo {
         "dev.ratmode.sdk_smoke", "SDK Smoke", "RatMode SDK", "0.1.0", RATPIPE_MONO, "smk",
-        { SP_CUT, SP_RES, SP_DECAY, SP_DRIVE }, 0u };
+        { SP_CUT, SP_RES, SP_DECAY, SP_DRIVE }, RATPIPE_FLAG_DETERMINISTIC_WITH_SEED };
 
     static constexpr ratpipe::ParamSpec kParams[SP_COUNT] = {
         ratpipe::ParamSpec("smk.cut",   "Cut",   "Filter", 0.55f).hz(60.0f, 11000.0f).mutate(0.15f, 0.95f),
@@ -57,7 +62,13 @@ public:
     }
 
     void onReleaseHeld() { env_.gateOff(); }
-    void onAllOff()      { env_.kill(); filt_.reset(); held_ = -1; }
+    void onAllOff()
+    {
+        // Everything back to the constructed state (M7): phase and glide are
+        // not parameters, so a song switch must not inherit them.
+        env_.kill(); filt_.reset(); dc_.reset(); osc_.reset(); glide_.reset();
+        amp_ = 0.0f; held_ = -1;
+    }
 
     void render(float* L, float* R, int n)
     {

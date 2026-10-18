@@ -69,8 +69,14 @@ public:
         started_ = true;
     }
 
-    /// Set the pitch directly with no glide (e.g. on FLUSH / ALL_OFF).
+    /// Set the pitch directly with no glide.
     void snap(float note) noexcept { target_ = current_ = static_cast<double>(clamp(note, -36.0f, 150.0f)); started_ = true; }
+
+    /// Back to the freshly constructed state: the next noteOn jumps even if it
+    /// asks for a slide (there is no previous note to slide from). Call it on
+    /// FLUSH / ALL_OFF so a re-used instance cannot glide from the last song's
+    /// pitch (contract M7: that pitch is state the song does not own).
+    void reset() noexcept { current_ = target_ = 45.0; started_ = false; }
 
     /// Advance one sample; returns the current note (fractional MIDI). State is
     /// double so the glide always lands exactly on the target (a float
