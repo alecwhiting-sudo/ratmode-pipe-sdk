@@ -1,0 +1,16 @@
+build/
+build-*/
+cmake-build-*/
+out/
+*.wav
+*.o
+*.so
+*.dylib
+*.ratpipe.zip
+__pycache__/
+*.pyc
+.DS_Store
+.vscode/
+.idea/
+CMakeUserPresets.json
+!host/tests/fixtures/**/*.wav

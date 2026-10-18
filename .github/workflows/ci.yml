@@ -1,0 +1,14 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  abi-hash:
+    name: ABI header is byte-identical
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check ratpipe_abi.h against the recorded sha256
+        run: scripts/check_abi_hash.sh
