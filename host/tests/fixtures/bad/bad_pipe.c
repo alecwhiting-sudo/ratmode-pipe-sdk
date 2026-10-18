@@ -119,6 +119,12 @@ static void bp_render(void* p, float* L, float* R, int32_t n, const RatPipeEvent
 #if defined(BAD_OOB)
     L[n] = 0.5f;
 #endif
+#if defined(BAD_HANG)
+    {   /* never returns: the validator's watchdog must kill us and report the stage */
+        volatile int spin = 1;
+        while (spin) { }
+    }
+#endif
 
     for (int32_t i = 0; i < n; ++i)
     {

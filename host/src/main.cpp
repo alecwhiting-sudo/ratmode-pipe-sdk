@@ -20,7 +20,10 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <cerrno>
+#include <chrono>
 #include <fstream>
+#include <poll.h>
 #include <sys/mman.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -36,6 +39,7 @@ void usage(std::FILE* f)
         "\n"
         "  ratpipe-host validate <bundle|lib> [--quick] [--seeds N] [--json] [--src DIR]... [--only V4,V9]\n"
         "                                     [--allow-single-arch] [--timing-slack X] [--seed N] [--no-fork]\n"
+        "                                     [--timeout SECONDS]   (watchdog, default 300, 0 = none)\n"
         "  ratpipe-host render   <bundle|lib> --out FILE.wav [--pattern drum16|acid16|chords|silence] [--bpm 130]\n"
         "                                     [--seconds 8] [--tail 1.5] [--sr 48000] [--block 256] [--seed N]\n"
         "                                     [--params default|random|min|max] [--param id=value]... [--format 16|24|32f]\n"
@@ -43,7 +47,7 @@ void usage(std::FILE* f)
         "  ratpipe-host --dump-manifest <bundle|lib> [--out FILE] [--expect-id ID] [--min-ratmode-version V]\n"
         "  ratpipe-host --dump-plist    <bundle|lib> [--out FILE] [--expect-id ID]\n"
         "\n"
-        "exit codes: 0 ok, 1 validation failed / pipe crashed, 2 usage or load error\n", f);
+        "exit codes: 0 ok, 1 validation failed / pipe crashed or hung, 2 usage or load error\n", f);
 }
 
 struct Args
@@ -272,6 +276,10 @@ int cmdValidate(const Args& a)
         }
     }
     const bool json = a.has("json");
+    double timeoutS = 300.0;                       // a pipe that spins in render would otherwise hang the validator for ever
+    if (a.has("timeout")) timeoutS = std::atof(a.get("timeout").c_str());
+    else if (const char* e = std::getenv("RATPIPE_VALIDATE_TIMEOUT")) timeoutS = std::atof(e);
+    if (! (timeoutS >= 0.0)) { std::fprintf(stderr, "ratpipe-host validate: --timeout wants a number of seconds (0 disables)\n"); return 2; }
     const bool color = ! json && ! a.has("no-color") && isatty(STDOUT_FILENO) && std::getenv("NO_COLOR") == nullptr;
     const bool chatty = a.has("verbose") || (! json && isatty(STDERR_FILENO));
 
@@ -314,16 +322,46 @@ int cmdValidate(const Args& a)
         _exit(rep.failed() ? 1 : 0);
     }
     close(fds[1]);
+    // Watchdog: the child writes its whole report at the end, so "no bytes yet" is normal;
+    // the deadline is on the whole validation. On expiry the child is SIGKILLed (a spinning
+    // render loop ignores anything gentler) and the stage it was in is reported.
     std::string text;
     char buf[4096];
+    bool hung = false;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::duration<double>(timeoutS));
     for (;;)
     {
+        int waitMs = -1;
+        if (timeoutS > 0.0)
+        {
+            const auto left = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now()).count();
+            if (left <= 0) { hung = true; break; }
+            waitMs = (int) std::min<long long>(left, 1000);
+        }
+        pollfd pf; pf.fd = fds[0]; pf.events = POLLIN; pf.revents = 0;
+        const int pr = poll(&pf, 1, waitMs);
+        if (pr < 0) { if (errno == EINTR) continue; break; }
+        if (pr == 0) continue;                       // tick: loop re-checks the deadline
         const ssize_t n = read(fds[0], buf, sizeof buf);
-        if (n <= 0) break;
+        if (n <= 0) break;                           // EOF: the child is done (or died)
         text.append(buf, (size_t) n);
     }
     close(fds[0]);
     int status = 0;
+    if (hung)
+    {
+        kill(pid, SIGKILL);
+        waitpid(pid, &status, 0);
+        const std::string during = stage ? stage : "";
+        if (json)
+            std::printf("{\n  \"path\": %s,\n  \"result\": \"hang\",\n  \"timeout_s\": %g,\n  \"during\": %s\n}\n", jsonEscape(a.pos[0]).c_str(), timeoutS, jsonEscape(during).c_str());
+        else
+            std::printf("ratpipe-host %s validating %s\nHANG: the validator did not finish within %g s and was killed while running: %s\n"
+                        "A render that never returns (or runs far slower than real time) is always a failure: RatMode's audio thread would stall. "
+                        "Raise --timeout only if the machine is genuinely that slow.\nRESULT: FAIL\n",
+                        kHostVersion, a.pos[0].c_str(), timeoutS, during.empty() ? "(loading)" : during.c_str());
+        return 1;
+    }
     waitpid(pid, &status, 0);
 
     if (WIFSIGNALED(status))
@@ -353,7 +391,7 @@ int main(int argc, char** argv)
 
     Args a; std::string err;
     const std::vector<std::string> valued = { "seeds", "src", "only", "timing-slack", "seed", "out", "pattern", "bpm", "seconds", "tail",
-                                              "sr", "block", "params", "param", "format", "expect-id", "min-ratmode-version" };
+                                              "sr", "block", "params", "param", "format", "expect-id", "min-ratmode-version", "timeout" };
     if (! parseArgs(argc, argv, 2, valued, a, err)) { std::fprintf(stderr, "ratpipe-host: %s\n", err.c_str()); return 2; }
 
     if (cmd == "validate") { rtguard::ensurePreloaded(argv); return cmdValidate(a); }

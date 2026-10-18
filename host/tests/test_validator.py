@@ -75,6 +75,15 @@ for name, (must_fail, extra) in CASES.items():
     ok = rc == 1 and all(m in got for m in must_fail)
     expect("bad_%s -> %s fails" % (name, "+".join(must_fail)), ok, "failing checks: %s (rc=%d)" % (got, rc))
 
+# a pipe whose render never returns is killed by the watchdog and reported as a hang, naming the stage
+p = subprocess.run([HOST, "validate", os.path.join(DIR, "bad_hang" + EXT), "--json", "--quick", "--only", "V4", "--timeout", "3"],
+                   capture_output=True, text=True, timeout=60)
+try:
+    rep = json.loads(p.stdout)
+    expect("hanging pipe reported as hang during V4", p.returncode == 1 and rep.get("result") == "hang" and "V4" in rep.get("during", ""), p.stdout)
+except Exception:
+    expect("hanging pipe reported as hang during V4", False, p.stdout + p.stderr)
+
 # a pipe that SIGSEGVs is reported, not fatal to the host
 p = subprocess.run([HOST, "validate", os.path.join(DIR, "crash" + EXT), "--json", "--quick"], capture_output=True, text=True)
 try:

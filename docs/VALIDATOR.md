@@ -5,7 +5,10 @@
 `--quick` uses 20 fuzz seeds instead of 200; `--json` prints a machine-readable
 report; `--only V4,V9` runs a subset. The validation itself runs in a child process,
 so a pipe that crashes is reported as a failure (`result: crash`) instead of taking
-the host with it.
+the host with it, and a watchdog kills a validation that does not finish within
+`--timeout` seconds (default 300, `RATPIPE_VALIDATE_TIMEOUT`, 0 disables) and reports
+`result: hang` with the stage it was in — a `render` that never returns is a failure,
+not something to wait for.
 
 | # | Check | Fails when |
 |---|---|---|
