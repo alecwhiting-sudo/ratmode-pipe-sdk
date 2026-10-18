@@ -10,9 +10,11 @@
 // time to fall 60 dB (so "decay 400 ms" is inaudible after ~400 ms).
 // Percussive one-shot: set sustain to 0 and call gateOn() per hit.
 //
-// Guarantees: output in [0, 1], finite, monotone within a stage; gateOn()
-// restarts from the current level (no click); isActive() goes false once the
-// level is below 1e-5 so voices can be skipped. No allocation; exp() only in
+// Guarantees: output in [0, 1], finite, monotone within a stage (for a fixed
+// sustain); gateOn() restarts from the current level (no click); changing the
+// sustain level with set() during Decay or Sustain glides to the new level at
+// the decay rate (no one-sample jump); isActive() goes false once the level is
+// below 1e-5 so voices can be skipped. No allocation; exp() only in
 // set()/prepare().
 #pragma once
 #include <cmath>
@@ -59,8 +61,11 @@ public:
                 if (y_ >= 1.0f) { y_ = 1.0f; stage_ = Decay; }
                 break;
             case Decay:
+                // Moves toward the sustain level from either side, so raising
+                // sustain mid-decay (set() during a note) glides up instead of
+                // jumping in one sample.
                 y_ += dCoef_ * (sus_ - y_);
-                if (y_ - sus_ < 1.0e-4f)
+                if (y_ - sus_ < 1.0e-4f && sus_ - y_ < 1.0e-4f)
                 {
                     y_ = sus_;
                     stage_ = sus_ > 1.0e-5f ? Sustain : Idle;
@@ -68,7 +73,10 @@ public:
                 }
                 break;
             case Sustain:
-                y_ = sus_;
+                // Follows a changed sustain level at the decay rate (no click);
+                // exactly sus_ once there.
+                y_ += dCoef_ * (sus_ - y_);
+                if (y_ - sus_ < 1.0e-4f && sus_ - y_ < 1.0e-4f) y_ = sus_;
                 break;
             case Release:
                 y_ -= rCoef_ * y_;

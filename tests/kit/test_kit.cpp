@@ -347,6 +347,27 @@ TEST(adsr_shape_and_bounds)
     Adsr p; p.prepare(sr); p.set(0.5f, 50.0f, 0.0f, 50.0f); p.gateOn();
     int life = 0; while (p.isActive() && life < 100000) { p.process(); ++life; }
     CHECK(life > 0 && life < static_cast<int>(sr * 0.08));   // 1 -> 1e-4 is 1.33x the -60 dB time
+    // raising sustain mid-decay glides up at the decay rate: no one-sample jump
+    {
+        Adsr r; r.prepare(sr); r.set(1.0f, 100.0f, 0.2f, 50.0f); r.gateOn();
+        for (int i = 0; i < 2000; ++i) r.process();
+        CHECK(r.stage() == Adsr::Decay);
+        const float before = r.value();
+        r.set(1.0f, 100.0f, 0.9f, 50.0f);
+        float prevV = before; int steps = 0;
+        while (r.value() < 0.9f - 1.0e-3f && steps < 100000) { const float v = r.process(); CHECK(v >= prevV && v - prevV < 0.01f); prevV = v; ++steps; }
+        CHECK(steps > static_cast<int>(sr * 0.01));         // took real time, not one sample
+        CHECK_NEAR(r.value(), 0.9f, 2e-3);
+        // and in Sustain: lowering it glides down the same way
+        while (r.stage() != Adsr::Sustain && steps < 200000) { r.process(); ++steps; }
+        CHECK(r.stage() == Adsr::Sustain);
+        r.set(1.0f, 100.0f, 0.3f, 50.0f);
+        prevV = r.value(); steps = 0;
+        while (r.value() > 0.3f + 1.0e-3f && steps < 100000) { const float v = r.process(); CHECK(v <= prevV && prevV - v < 0.01f); prevV = v; ++steps; }
+        CHECK(steps > static_cast<int>(sr * 0.01));
+        for (int i = 0; i < 20000; ++i) r.process();
+        CHECK(r.value() == 0.3f);
+    }
     // absurd inputs are clamped, never NaN
     Adsr z; z.prepare(0.0); z.set(-5.0f, std::nanf(""), 7.0f, 1.0e9f); z.gateOn();
     for (int i = 0; i < 100; ++i) { const float v = z.process(); CHECK(isFinite(v) && v >= 0.0f && v <= 1.0f); }
