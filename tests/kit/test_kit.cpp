@@ -104,6 +104,25 @@ TEST(polyblep_pulse_and_tri_bounded_and_aliasing)
     }
 }
 
+TEST(tri_is_dc_free_for_every_pulse_width)
+{
+    // The triangle integrates the 50 % square whatever setPulseWidth() says,
+    // so its mean stays ~0 and its swing symmetric (an asymmetric pulse would
+    // leave a -0.5 offset at width 0.25 and a one-sided swing).
+    const double sr = 44100.0;
+    for (float w : { 0.05f, 0.25f, 0.5f, 0.95f })
+    {
+        Osc o; o.prepare(sr); o.setWave(Osc::Tri); o.setPulseWidth(w); o.setFrequency(110.0f);
+        for (int i = 0; i < 22050; ++i) o.process();                       // settle the integrator
+        double sum = 0.0; float mn = 9.0f, mx = -9.0f;
+        for (int i = 0; i < 44100; ++i) { const float s = o.process(); sum += s; mn = std::fmin(mn, s); mx = std::fmax(mx, s); }
+        const double mean = sum / 44100.0;
+        CHECK(std::fabs(mean) < 0.02);
+        CHECK(std::fabs(mx + mn) < 0.05);                                 // symmetric swing
+        CHECK(mx > 0.8f && mn < -0.8f);
+    }
+}
+
 TEST(osc_extreme_frequencies_stay_bounded)
 {
     Osc o; o.prepare(48000.0);

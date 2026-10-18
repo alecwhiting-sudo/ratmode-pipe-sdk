@@ -15,7 +15,10 @@
 //     for saw/pulse, held value for tri).
 //   - |output| <= 1.1 for every waveform at every frequency (PolyBLEP residual
 //     overshoot included). Triangle is a leaky integration of the band-limited
-//     pulse with a frequency-proportional leak, so it cannot drift.
+//     50 % square (the pulse width setting does not apply to it, so it has no
+//     DC term) with a frequency-proportional leak, so it cannot drift. The
+//     leak costs amplitude at high frequencies (~0.9 at 2 kHz, ~0.7 at 8 kHz
+//     at 44.1 kHz) — see docs/VALIDATOR.md known limits.
 //   - No allocation, no state outside the object, finite for all inputs.
 //   - Phase and increments are double; audio output is float.
 #pragma once
@@ -61,7 +64,8 @@ public:
     void setWave(Wave w) noexcept { wave_ = w; }
     Wave wave() const noexcept { return wave_; }
 
-    /// Pulse width for Pulse/Square, clamped to [0.05, 0.95].
+    /// Pulse width for Pulse/Square, clamped to [0.05, 0.95]. Tri ignores it
+    /// (always the integral of the 50 % square, so it stays DC-free).
     void setPulseWidth(float w) noexcept { width_ = static_cast<double>(clamp(w, 0.05f, 0.95f)); }
 
     void setFrequency(float hz) noexcept
@@ -98,12 +102,14 @@ private:
         return (2.0 * phase_ - 1.0) - polyBlepResidual(phase_, inc_ > 1.0e-9 ? inc_ : 1.0e-9);
     }
 
-    double pulseSample() const noexcept
+    double pulseSample() const noexcept { return pulseSampleAt(width_); }
+
+    double pulseSampleAt(double width) const noexcept
     {
         const double dt = inc_ > 1.0e-9 ? inc_ : 1.0e-9;
-        double v = phase_ < width_ ? 1.0 : -1.0;
+        double v = phase_ < width ? 1.0 : -1.0;
         v += polyBlepResidual(phase_, dt);                // rising edge at 0
-        double t2 = phase_ - width_;
+        double t2 = phase_ - width;
         if (t2 < 0.0) t2 += 1.0;
         v -= polyBlepResidual(t2, dt);                    // falling edge at width
         return v;
@@ -112,7 +118,10 @@ private:
     double triSample() noexcept
     {
         if (inc_ < 1.0e-7) return tri_;                   // no frequency: hold, never integrate DC
-        const double sq   = pulseSample();
+        // Always integrate the 50 % square, whatever setPulseWidth() says: an
+        // asymmetric pulse has a DC term that the leaky integrator would turn
+        // into an offset (mean -0.5 at width 0.25) and a one-sided swing.
+        const double sq   = pulseSampleAt(0.5);
         const double leak = 1.0 - 0.125 * inc_;           // time constant = 8 periods
         tri_ = tri_ * leak + 4.0 * inc_ * sq;
         if (tri_ > 1.1) tri_ = 1.1; else if (tri_ < -1.1) tri_ = -1.1;
