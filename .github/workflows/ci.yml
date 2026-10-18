@@ -28,9 +28,22 @@ jobs:
 
       # ctest runs: the validator against known-good fixtures (must pass) and
       # known-bad fixtures (each must fail its own check), the validator on every
-      # example bundle, and tests/kit when that folder exists.
+      # example bundle (quick, plus the full 200-seed run with the V13 source
+      # audit as validate.full.<example>), and tests/kit when that folder exists.
+      # RATPIPE_TIMING_SLACK: V7 measures the worst single 64-sample block; on a
+      # shared runner one pre-emption can spike it, so give it the documented 2x.
       - name: Test
         run: ctest --test-dir build --output-on-failure
+        env:
+          RATPIPE_TIMING_SLACK: "2"
+
+      # The two worked examples, rendered the way the README tells people to.
+      # The host refuses to write a file with a non-finite sample and prints
+      # peak / RMS, so a silent or clipping example shows up in the log.
+      - name: Render the example demos
+        run: |
+          tools/ratpipe --build-dir build render mono_fm_wobble --no-build --pattern acid16 --bpm 130 --out out/mono_fm_wobble.wav
+          tools/ratpipe --build-dir build render drum_fm_kick   --no-build --pattern drum16 --bpm 130 --out out/drum_fm_kick.wav
 
       - name: Template smoke test (new -> build -> validate -> render -> install -> package)
         run: |
@@ -64,6 +77,8 @@ jobs:
 
       - name: Validate every bundle (includes the V12 lipo / otool checks)
         run: ctest --test-dir build --output-on-failure -E validator.fixtures
+        env:
+          RATPIPE_TIMING_SLACK: "2"
 
       - name: lipo, otool and codesign checks on every bundle
         run: |

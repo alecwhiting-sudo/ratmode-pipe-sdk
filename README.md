@@ -10,18 +10,27 @@ Use this repository as a GitHub template (or clone it), add your pipe under `pip
 and iterate with the command line. MIT licence.
 
 > **Status: milestone 1.** The ABI header, build system, offline host / validator,
-> CLI, C++ helper base (`pipe_base.hpp`) and DSP kit are in place. The starter
-> templates that `ratpipe new` copies are written against `pipe_base.hpp` and the
-> kit; the worked example pipes are being added alongside.
+> CLI, C++ helper base (`pipe_base.hpp`), DSP kit, starter templates and two worked
+> examples (`examples/mono_fm_wobble`, `examples/drum_fm_kick`) are in place.
 
 ## Quickstart
 
-macOS 11+ with Xcode Command Line Tools, CMake 3.22+ and Python 3:
+macOS 11+ with Xcode Command Line Tools, CMake 3.22+ and Python 3. Hear a finished
+pipe first — the gritty FM bass with a wobble macro from `examples/`:
 
 ```
 git clone https://github.com/alecwhiting-sudo/ratmode-pipe-sdk
 cd ratmode-pipe-sdk
 
+tools/ratpipe build                                                     # host + every example
+tools/ratpipe validate mono_fm_wobble                                   # V1-V13, all green
+tools/ratpipe render mono_fm_wobble --pattern acid16 --out out/wobble.wav   # 8 s at 130 bpm
+tools/ratpipe install mono_fm_wobble                                    # try it in RatMode (Developer mode)
+```
+
+Then make your own:
+
+```
 tools/ratpipe new MyBass --kind mono        # drum | mono; creates pipes/MyBass/
 tools/ratpipe build                         # build/MyBass.ratpipe (universal, ad-hoc signed)
 tools/ratpipe validate MyBass               # V1-V13: has to be green
@@ -32,8 +41,10 @@ tools/ratpipe install MyBass                # -> ~/Library/Application Support/R
 Then in RatMode: turn on **Developer mode**, open CONFIGURE, pick your pipe under
 **Extension**, read the warning and press **Allow** ([docs/INSTALL.md](docs/INSTALL.md)).
 Your pipe appears with an "Unverified" badge and four Perform knobs. Edit
-`pipes/MyBass/src/Pipe.cpp`, run `tools/ratpipe build && tools/ratpipe install MyBass`
-again, and Allow the rebuilt binary.
+`pipes/MyBass/src/Pipe.cpp` (a commented `pipe_base.hpp` starter: parameter table,
+event hooks, `render()`), run `tools/ratpipe build && tools/ratpipe install MyBass`
+again, and Allow the rebuilt binary. When the starter feels small, copy an example
+from `examples/` into `pipes/` instead and change its id.
 
 On Linux everything except `install` works (CI uses this), so the loop also runs in
 Claude Code on the web or any CI box.
@@ -58,9 +69,25 @@ host/                            ratpipe-host: offline host, renderer and valida
 tools/ratpipe                    the command line (Python 3, no dependencies)
 template/                        what `ratpipe new` copies
 pipes/                           your pipes (created by `ratpipe new`; built automatically)
-examples/                        worked example pipes
+examples/                        worked example pipes (see below)
 docs/                            CONTRACT, MANIFEST, VALIDATOR, INSTALL, SIGNING
 scripts/check_abi_hash.sh        the ABI-header integrity check CI runs
+```
+
+## Examples
+
+Both are complete pipes built from `pipe_base.hpp` and the kit, validated at 200
+seeds on every push, and laid out exactly as `ratpipe new` lays out yours. Each has
+a README explaining its knobs.
+
+| pipe | kind | what it shows |
+|---|---|---|
+| [`examples/mono_fm_wobble`](examples/mono_fm_wobble) | mono | two-operator FM + sub, asymmetric tanh grit, ladder filter, a wobble LFO synced to the host transport (Rate 1/4, 1/8, 1/16, 1/8T), 303-style slide and accent, discrete parameters, mutate bands, `WANTS_TRANSPORT` |
+| [`examples/drum_fm_kick`](examples/drum_fm_kick) | drum | FM kick with pitch envelope, seeded click through a bounded band-pass, tanh drive; honours `semitone_offset` and velocity; per-hit reseeding keeps it `DETERMINISTIC_WITH_SEED` |
+
+```
+tools/ratpipe render drum_fm_kick --pattern drum16 --out out/kick.wav
+tools/ratpipe info   mono_fm_wobble            # the parameter table RatMode will see
 ```
 
 ## `add_ratpipe`
@@ -86,9 +113,11 @@ to the `ratmode-pipes` catalogue, whose CI builds and signs it
 
 ## Checks that run on every push
 
-`.github/workflows/ci.yml`: ABI-header hash, Linux build + validation of the host
-fixtures, the template starters and (when present) the kit tests, and a macOS
-universal build with `lipo` checks.
+`.github/workflows/ci.yml`: ABI-header hash; Linux build, the kit tests, the
+validator's own fixtures, both examples at 200 seeds (`ctest`), their demo renders
+(uploaded as `audition-wavs`) and the `ratpipe new` smoke test for both starters; a
+macOS universal build with `lipo`, `otool`, export and `codesign` checks on every
+bundle.
 
 ## Licence
 
