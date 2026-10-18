@@ -73,6 +73,14 @@
   #define RATPIPE_HIDDEN
 #endif
 
+// Apple clang lowers a zero memset of runtime size — including one it forms
+// itself from a `p[i] = 0` loop — to `___bzero` on x86_64 (`_bzero` on
+// arm64), and a constant fill loop to `_memset_pattern16`. RatMode's import
+// allowlist has `_bzero` and `_memset` but not those two, so the base zeroes
+// its scratch from a value loaded through `volatile`, which the loop-idiom
+// pass cannot turn into either call. Keep this in mind in your own render():
+// prefer writing every sample over std::fill / memset of runtime length.
+
 namespace ratpipe {
 
 static_assert(std::atomic<float>::is_always_lock_free, "std::atomic<float> must be lock-free for the audio thread");
@@ -400,10 +408,17 @@ private:
         }
     }
 
+    static void zeroSamples(float* p, int32_t n) noexcept
+    {
+        volatile float source = 0.0f;           // see the note above RATPIPE_HIDDEN
+        const float z = source;
+        for (int32_t i = 0; i < n; ++i) p[i] = z;
+    }
+
     void renderChunk(float* L, float* R, int32_t len)
     {
-        std::memset(scratchL_, 0, sizeof(float) * static_cast<size_t>(len));
-        std::memset(scratchR_, 0, sizeof(float) * static_cast<size_t>(len));
+        zeroSamples(scratchL_, len);
+        zeroSamples(scratchR_, len);
         derived().render(scratchL_, scratchR_, static_cast<int>(len));
         for (int32_t i = 0; i < len; ++i)
         {
