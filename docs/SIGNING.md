@@ -1,5 +1,7 @@
 # Signing, trust and distribution
 
+> **Developer preview (RatMode 0.1.9+):** catalogue submissions aren't open yet; for now, build and load your own pipes in Developer mode.
+
 Short and blunt version:
 
 > RatMode only loads bundles signed with the RatMode author's Apple Team ID.

@@ -387,7 +387,7 @@ def cmd_package(args):
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="ratpipe", description="RatMode pipe SDK command line")
     ap.add_argument("--build-dir", default=None, help="CMake build directory (default: <sdk>/build)")
-    ap.add_argument("--version", action="version", version="ratpipe " + sdk_version())
+    ap.add_argument("--version", action="version", version="ratpipe " + sdk_version() + " (developer preview)")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     p = sub.add_parser("new", help="create pipes/<Name> from the template")

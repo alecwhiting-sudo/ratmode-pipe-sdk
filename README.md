@@ -1,5 +1,7 @@
 # ratmode-pipe-sdk
 
+> **Developer preview (RatMode 0.1.9+):** build, validate and load your own instrument pipes in Developer mode. The ABI may still gain additive features; the catalogue for reviewed, signed extensions isn't open yet.
+
 Build your own **pipes** (drum and melodic voices) for [RatMode](https://divurj.com) as
 native extension bundles. A pipe is a small C-ABI plug-in with no JUCE and no runtime
 dependencies: you write the DSP, the SDK checks it against the same contract RatMode
@@ -12,6 +14,26 @@ and iterate with the command line. MIT licence.
 > **Status: milestone 1.** The ABI header, build system, offline host / validator,
 > CLI, C++ helper base (`pipe_base.hpp`), DSP kit, starter templates and two worked
 > examples (`examples/mono_fm_wobble`, `examples/drum_fm_kick`) are in place.
+
+## What works today / Coming later
+
+**Requirements:** RatMode 0.1.9 or later, macOS 11+, Xcode Command Line Tools, CMake 3.22+, Python 3.
+
+**What works today**
+
+* Mono and drum instrument pipes, with `pipe_base` and the DSP kit.
+* The validator.
+* `ratpipe new`, `build`, `validate`, `render`, `install` and `package`.
+* Loading in Developer mode.
+* In RatMode: the Edit window, Perform knobs and mutate.
+
+**Coming later**
+
+* Catalogue submission and signing (loading without Developer mode).
+* Poly and chord pipes.
+* Colour themes from the SDK.
+* Recipes and a Claude skill for generating pipes from a description.
+* Preview images.
 
 ## Quickstart
 
