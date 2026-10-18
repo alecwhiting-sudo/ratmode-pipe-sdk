@@ -17,7 +17,7 @@
 //     overshoot included). Triangle is a leaky integration of the band-limited
 //     50 % square (the pulse width setting does not apply to it, so it has no
 //     DC term) with a frequency-proportional leak, so it cannot drift. The
-//     leak costs amplitude at high frequencies (~0.9 at 2 kHz, ~0.7 at 8 kHz
+//     leak costs amplitude at high frequencies (~0.96 at 2 kHz, ~0.83 at 8 kHz
 //     at 44.1 kHz) — see docs/VALIDATOR.md known limits.
 //   - No allocation, no state outside the object, finite for all inputs.
 //   - Phase and increments are double; audio output is float.

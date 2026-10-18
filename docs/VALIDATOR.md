@@ -55,7 +55,7 @@ not something to wait for.
   not insist there are two.
 * **Triangle amplitude droop (kit, not the validator).** `kit::Osc::Tri` is a leaky
   integration of the band-limited square with a leak of 8 periods, so its amplitude
-  falls with frequency: about 0.9 at 2 kHz and 0.7 at 8 kHz (44.1 kHz). Audibly fine for
+  falls with frequency: about 0.99 at 440 Hz, 0.96 at 2 kHz and 0.83 at 8 kHz (44.1 kHz). Audibly fine for
   bass and lead duty; compensate in the pipe if a triangle must hold level above a few
   kHz. The validator does not measure it.
 * **macOS V5 / V6 have not been run on a Mac.** The `DYLD_INTERPOSE` guard dylib and
