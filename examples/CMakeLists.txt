@@ -5,7 +5,7 @@
 # add_ratpipe() already registers a quick validation (20 fuzz seeds) per
 # bundle; the examples additionally get the full run (200 seeds, with the
 # V13 source audit) so `ctest` proves them against the whole contract.
-set(_ratpipe_examples mono_fm_wobble)
+set(_ratpipe_examples mono_fm_wobble drum_fm_kick)
 
 foreach (_ex IN LISTS _ratpipe_examples)
     add_subdirectory(${_ex})
