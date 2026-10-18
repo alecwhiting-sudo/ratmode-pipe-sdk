@@ -23,7 +23,7 @@ not something to wait for.
 | V9 Song-switch | instance A: random parameters, play 4 bars, `ALL_OFF + RELEASE_HELD + FLUSH`, every parameter back to default, play the pattern again; fresh instance B plays the same pattern | A differs from B by more than -60 dBFS (sample-exact, for pipes declaring `DETERMINISTIC_WITH_SEED`); for other pipes, 100 ms RMS windows after the first 100 ms differ by more than 1 dB (levels clamped to a -60 dBFS floor), or by more than -60 dBFS absolute in any window where either instance is quieter than -40 dBFS (so a tail only one instance has cannot hide under the floor). A pipe that trips this because its oscillator phase or glide carries over should reset them on `FLUSH` / `ALL_OFF`, or declare `DETERMINISTIC_WITH_SEED` and get the exact comparison; the limit is not relaxed for it |
 | V10 Silence | `ALL_OFF + FLUSH` while a note is held, at default and maximum parameters | output above -80 dBFS between 2.0 s and 2.5 s afterwards |
 | V11 Determinism | two instances, same host seed, parameters and events | not bit-identical (only checked when `DETERMINISTIC_WITH_SEED` is declared) |
-| V12 Bundle | `Info.plist` id and executable, `manifest.json` rules (the same ones RatMode applies), manifest id; on macOS also `lipo -archs` has x86_64 and arm64, `otool -L` shows only libSystem / libc++ / libc++abi, no `LC_RPATH` | any |
+| V12 Bundle | `Info.plist` id and executable, `manifest.json` rules (the same ones RatMode applies), manifest id; whenever the binary is Mach-O (on any platform) RatMode's own load-time check — `host/src/vendor/ExtMachOCheck.cpp`, vendored byte-identical from RatMode's `Source/Ext/` and kept in sync by `scripts/check_macho_sync.sh` in CI — runs over the file bytes: 64-bit `MH_DYLIB` slices only, allowlisted load commands (no `LC_RPATH`), only libSystem / libc++ / libc++abi, every imported symbol on RatMode's allowlist (libm, memory, C++ runtime; see the file), no W+X segments, no raw `svc` / `syscall` bytes in executable segments; on macOS also `lipo -archs` has x86_64 and arm64 | any; a Mach-O refusal quotes the checker's exact reason, e.g. `imports disallowed symbol '___bzero'`. `ratpipe-host --check-macho <dylib|bundle>...` runs the same check standalone (Linux CI uses it on a cross-built fixture) |
 | V13 Saturation audit | static grep of the sources (`--src DIR`; the CLI passes the pipe's folder) for `x*x*x`, `pow(x, 3)` and cubic soft-clip idioms | warning only: a polynomial clipper in a feedback path has crashed RatMode before (contract M4) |
 
 ## What it cannot prove
@@ -43,6 +43,26 @@ not something to wait for.
   `-fsanitize=thread` for that (V5 / V6 skip in that configuration).
 * **Timing** depends on the machine. V7 is a guard against gross overruns, not a
   profile.
+* **V12's Mach-O check is only as current as the vendored copy.** It is RatMode's
+  `ExtMachOCheck` at the commit named in `host/src/vendor/ExtMachOCheck.cpp`'s banner
+  (the allowlist that includes `___bzero` / `_memset_pattern*`). RatMode builds released
+  before that allowlist change refuse those two imports, so the SDK avoids emitting them
+  anyway (`kit::zeroBuffer`, see CONTRACT.md); a pipe that passes V12 here but imports
+  something newer than the vendored allowlist knows may still be refused by an older
+  RatMode. `scripts/check_macho_sync.sh /path/to/RatMode` tells you when to re-vendor.
+* **Universal slices are only checked on macOS.** V12 needs `lipo` for the x86_64 +
+  arm64 requirement; the Mach-O check itself validates every slice it is given but does
+  not insist there are two.
+* **Triangle amplitude droop (kit, not the validator).** `kit::Osc::Tri` is a leaky
+  integration of the band-limited square with a leak of 8 periods, so its amplitude
+  falls with frequency: about 0.9 at 2 kHz and 0.7 at 8 kHz (44.1 kHz). Audibly fine for
+  bass and lead duty; compensate in the pipe if a triangle must hold level above a few
+  kHz. The validator does not measure it.
+* **macOS V5 / V6 have not been run on a Mac.** The `DYLD_INTERPOSE` guard dylib and
+  the re-exec path in `ratpipe-host validate` were written and reviewed without one;
+  until the author has run the fixture suite on real hardware, treat a macOS V5 / V6 PASS
+  as unverified (the macOS CI job keeps that step non-blocking). Linux V5 / V6 are
+  exercised by the fixture suite on every push.
 
 ## Reading a failure
 
