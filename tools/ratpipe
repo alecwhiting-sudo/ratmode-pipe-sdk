@@ -1,0 +1,461 @@
+#!/usr/bin/env python3
+"""ratpipe — command line for the RatMode pipe SDK (Python 3, standard library only).
+
+    ratpipe new <Name> --kind drum|mono [--id com.me.name] [--author "Me"]
+    ratpipe build
+    ratpipe validate [<Name|bundle>...] [--quick] [--json]
+    ratpipe render   <Name|bundle> [--pattern acid16] [--out out/Name.wav] ...
+    ratpipe info     <Name|bundle>
+    ratpipe install  <Name|bundle>        (Developer-mode testing only)
+    ratpipe uninstall <Name|id>
+    ratpipe package  <Name|bundle> [--identity "Developer ID Application: ..."] [--notarize]
+
+The validator is the gate: `install` and `package` refuse a pipe that does not
+pass it. See docs/INSTALL.md, docs/SIGNING.md and docs/CONTRACT.md.
+"""
+import argparse
+import glob
+import json
+import os
+import platform
+import re
+import shutil
+import subprocess
+import sys
+import zipfile
+
+ROOT = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+IS_MAC = platform.system() == "Darwin"
+DEFAULT_INSTALL_DIR = os.path.expanduser("~/Library/Application Support/RatMode/Extensions")
+RESERVED_PREFIXES = {"fx", "sculpt", "synth", "gain", "sample", "dry", "ra", "rb", "an", "sv", "sn",
+                     "sub0", "sub1", "sub2", "sub3", "au_param"}
+
+BOLD, RED, GREEN, DIM, RESET = "\033[1m", "\033[31m", "\033[32m", "\033[2m", "\033[0m"
+if not sys.stdout.isatty() or os.environ.get("NO_COLOR"):
+    BOLD = RED = GREEN = DIM = RESET = ""
+
+
+def die(msg, code=2):
+    print("ratpipe: " + msg, file=sys.stderr)
+    sys.exit(code)
+
+
+def sdk_version():
+    try:
+        with open(os.path.join(ROOT, "VERSION")) as f:
+            return f.read().strip()
+    except OSError:
+        return "0.0.0"
+
+
+def run(cmd, **kw):
+    return subprocess.run(cmd, **kw)
+
+
+# ── building ────────────────────────────────────────────────────────────────
+
+def build_dir(args):
+    return os.path.abspath(getattr(args, "build_dir", None) or os.path.join(ROOT, "build"))
+
+
+def host_exe(bdir):
+    return os.path.join(bdir, "host", "ratpipe-host")
+
+
+def ensure_built(args, target=None):
+    """Configure (once) and build. Returns the build dir."""
+    bdir = build_dir(args)
+    if not os.path.exists(os.path.join(bdir, "CMakeCache.txt")):
+        print(DIM + "configuring %s ..." % bdir + RESET)
+        r = run(["cmake", "-S", ROOT, "-B", bdir, "-DRATPIPE_BUILD_TESTS=OFF"])
+        if r.returncode != 0:
+            die("cmake configure failed", 1)
+    # New pipes/ folders need a re-glob; configure is cheap and idempotent.
+    run(["cmake", "-S", ROOT, "-B", bdir], stdout=subprocess.DEVNULL)
+    cmd = ["cmake", "--build", bdir, "-j", str(os.cpu_count() or 4)]
+    if target:
+        cmd += ["--target", target]
+    r = run(cmd)
+    if r.returncode != 0:
+        die("build failed", 1)
+    return bdir
+
+
+def cmd_build(args):
+    ensure_built(args, args.target)
+    print(GREEN + "built." + RESET + " bundles in " + build_dir(args))
+    for b in sorted(user_bundles(build_dir(args))):
+        print("  " + b)
+    return 0
+
+
+def user_bundles(bdir):
+    return [b for b in glob.glob(os.path.join(bdir, "*.ratpipe")) if not os.path.basename(b).startswith("fixture_")]
+
+
+def resolve_bundle(arg, bdir):
+    """A path to a bundle / library, or a pipe name built into <build>/<name>.ratpipe."""
+    if os.path.exists(arg):
+        return os.path.abspath(arg)
+    cand = os.path.join(bdir, arg if arg.endswith(".ratpipe") else arg + ".ratpipe")
+    if os.path.isdir(cand):
+        return cand
+    die("no bundle '%s' (looked for %s). Run `ratpipe build` first." % (arg, cand))
+
+
+def source_dirs_for(bundle):
+    name = os.path.basename(bundle)[: -len(".ratpipe")] if bundle.endswith(".ratpipe") else None
+    out = []
+    if name:
+        for base in ("pipes", "examples"):
+            d = os.path.join(ROOT, base, name)
+            if os.path.isdir(d):
+                out.append(d)
+    return out
+
+
+def bundle_manifest(bundle):
+    p = os.path.join(bundle, "Contents", "Resources", "manifest.json")
+    try:
+        with open(p) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+# ── validate / render / info ────────────────────────────────────────────────
+
+def run_validate(host, bundle, args, extra=None, capture=False):
+    cmd = [host, "validate", bundle]
+    if getattr(args, "quick", False):
+        cmd.append("--quick")
+    if getattr(args, "seeds", None) is not None:
+        cmd += ["--seeds", str(args.seeds)]
+    if getattr(args, "json", False):
+        cmd.append("--json")
+    for s in source_dirs_for(bundle):
+        cmd += ["--src", s]
+    if getattr(args, "allow_single_arch", False):
+        cmd.append("--allow-single-arch")
+    cmd += extra or []
+    return run(cmd, capture_output=capture, text=True)
+
+
+def prepare(args, names):
+    bdir = ensure_built(args) if not getattr(args, "no_build", False) else build_dir(args)
+    host = host_exe(bdir)
+    if not os.path.exists(host):
+        die("ratpipe-host not found at %s (run `ratpipe build`)" % host)
+    return bdir, host
+
+
+def cmd_validate(args):
+    bdir, host = prepare(args, args.pipes)
+    bundles = [resolve_bundle(p, bdir) for p in args.pipes] if args.pipes else sorted(user_bundles(bdir))
+    if not bundles:
+        die("nothing to validate: no bundles in %s. Create one with `ratpipe new`, then `ratpipe build`." % bdir)
+    rc = 0
+    for b in bundles:
+        r = run_validate(host, b, args)
+        rc = max(rc, r.returncode)
+    return rc
+
+
+def cmd_render(args):
+    bdir, host = prepare(args, [args.pipe])
+    bundle = resolve_bundle(args.pipe, bdir)
+    out = args.out or os.path.join(ROOT, "out", os.path.basename(bundle).replace(".ratpipe", "") + ".wav")
+    os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
+    cmd = [host, "render", bundle, "--out", out]
+    for opt in ("pattern", "bpm", "seconds", "tail", "sr", "block", "seed", "params", "format"):
+        v = getattr(args, opt)
+        if v is not None:
+            cmd += ["--" + opt, str(v)]
+    for p in args.param or []:
+        cmd += ["--param", p]
+    return run(cmd).returncode
+
+
+def cmd_info(args):
+    bdir, host = prepare(args, [args.pipe])
+    return run([host, "info", resolve_bundle(args.pipe, bdir)]).returncode
+
+
+# ── new ─────────────────────────────────────────────────────────────────────
+
+def camel_to_words(name):
+    s = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", " ", name).replace("_", " ").strip()
+    return s[:24].strip()
+
+
+def derive_prefix(name):
+    letters = re.sub(r"[^a-z]", "", name.lower())
+    for n in (3, 4, 2, 5, 6):
+        cand = letters[:n]
+        if len(cand) >= 2 and cand not in RESERVED_PREFIXES:
+            return cand
+    cand = (letters + "pp")[:3]
+    return cand if cand not in RESERVED_PREFIXES else "xpp"
+
+
+def git_user():
+    try:
+        r = subprocess.run(["git", "config", "user.name"], capture_output=True, text=True, timeout=5)
+        return r.stdout.strip() or "Unknown"
+    except Exception:
+        return "Unknown"
+
+
+def cmd_new(args):
+    name = args.name
+    if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{1,39}", name):
+        die("name must be 2-40 characters: a letter, then letters, digits or '_' (e.g. MyBass)")
+    pid = args.id or ("com.example." + re.sub(r"[^a-z0-9_]", "_", name.lower()))
+    if not re.fullmatch(r"[a-z0-9]+(\.[a-z0-9_]+)+", pid):
+        die("id '%s' must be lowercase reverse-DNS, e.g. com.me.mybass" % pid)
+    prefix = args.prefix or derive_prefix(name)
+    if not re.fullmatch(r"[a-z]{2,6}", prefix) or prefix in RESERVED_PREFIXES or prefix.startswith("au_param"):
+        die("macro prefix '%s' must be 2-6 lowercase letters and not reserved (%s)" % (prefix, " ".join(sorted(RESERVED_PREFIXES))))
+    display = args.display_name or camel_to_words(name)
+    if len(display) > 24:
+        die("display name '%s' is longer than 24 characters" % display)
+    dest = os.path.join(ROOT, args.dir, name)
+    if os.path.exists(dest):
+        die("%s already exists" % dest)
+
+    subs = {
+        "@NAME@": name, "@DISPLAY@": display, "@ID@": pid, "@PREFIX@": prefix,
+        "@AUTHOR@": (args.author or git_user()).replace('"', "'"), "@SDK_VERSION@": sdk_version(), "@KIND@": args.kind,
+    }
+
+    def fill(text):
+        for k, v in subs.items():
+            text = text.replace(k, v)
+        return text
+
+    tpl = os.path.join(ROOT, "template")
+    os.makedirs(os.path.join(dest, "src"))
+    for src, dst in (("CMakeLists.txt.in", "CMakeLists.txt"), ("README.md.in", "README.md"),
+                     ("src/Pipe_%s.cpp" % args.kind, "src/Pipe.cpp")):
+        with open(os.path.join(tpl, src)) as f:
+            text = fill(f.read())
+        with open(os.path.join(dest, dst), "w") as f:
+            f.write(text)
+
+    rel = os.path.relpath(dest, ROOT)
+    print(GREEN + "created " + RESET + rel + "  (%s, id %s, prefix %s.)" % (args.kind, pid, prefix))
+    print("next:\n  tools/ratpipe build\n  tools/ratpipe validate %s\n  tools/ratpipe render %s --out out/%s.wav\n  tools/ratpipe install %s   # then enable Developer mode in RatMode (docs/INSTALL.md)"
+          % (name, name, name, name))
+    if args.build:
+        ns = argparse.Namespace(build_dir=None, target=None)
+        cmd_build(ns)
+        v = argparse.Namespace(build_dir=None, pipes=[name], quick=True, json=False, seeds=None, no_build=True, allow_single_arch=False)
+        return cmd_validate(v)
+    return 0
+
+
+# ── install / uninstall ─────────────────────────────────────────────────────
+
+def install_dir(args):
+    d = args.dest or (DEFAULT_INSTALL_DIR if IS_MAC else None)
+    if not d:
+        die("ratpipe install targets RatMode's Extensions folder on macOS; pass --dest DIR to copy elsewhere")
+    return os.path.abspath(os.path.expanduser(d))
+
+
+def cmd_install(args):
+    bdir, host = prepare(args, [args.pipe])
+    bundle = resolve_bundle(args.pipe, bdir)
+    if not os.path.isdir(bundle):
+        die("%s is not a .ratpipe bundle" % bundle)
+    if not args.skip_validate:
+        print(BOLD + "validating before install (quick) ..." + RESET)
+        ns = argparse.Namespace(quick=True, json=False, seeds=None, allow_single_arch=False)
+        r = run_validate(host, bundle, ns)
+        if r.returncode != 0:
+            die("validation failed — not installing. Fix the failing checks (docs/CONTRACT.md) and retry.", 1)
+    dest = install_dir(args)
+    os.makedirs(dest, exist_ok=True)
+    target = os.path.join(dest, os.path.basename(bundle))
+    if os.path.exists(target):
+        shutil.rmtree(target)
+    shutil.copytree(bundle, target, symlinks=True)
+    print(GREEN + "installed " + RESET + target)
+    print(
+        "\nThis is a LOCAL, unsigned build: RatMode's normal mode will NOT load it.\n"
+        "  1. In RatMode turn on Developer mode (Settings), read the warning.\n"
+        "  2. CONFIGURE -> pick the pipe under Extension -> warning -> Allow.\n"
+        "  3. The pipe shows an 'Unverified' badge. It is not distributable (docs/SIGNING.md).\n"
+        "Rebuilding changes the binary hash, so RatMode asks for consent again.")
+    return 0
+
+
+def cmd_uninstall(args):
+    dest = install_dir(args)
+    removed = 0
+    for b in glob.glob(os.path.join(dest, "*.ratpipe")):
+        base = os.path.basename(b)[: -len(".ratpipe")]
+        if args.pipe in (base, os.path.basename(b)) or bundle_manifest(b).get("id") == args.pipe:
+            shutil.rmtree(b)
+            print("removed " + b)
+            removed += 1
+    if not removed:
+        die("no installed bundle named or with id '%s' in %s" % (args.pipe, dest), 1)
+    return 0
+
+
+# ── package ─────────────────────────────────────────────────────────────────
+
+README_PACKAGE = """{name} {version} — RatMode pipe ({id})
+
+LOCAL / DEVELOPER-MODE BUILD. RatMode's normal mode only loads bundles signed with
+the RatMode author's Team ID, so this archive will not load unless Developer mode is
+on (Settings), and then only after a consent prompt, with an "Unverified" badge.
+It is not a distributable release. To ship a pipe, submit its SOURCE to the
+ratmode-pipes catalogue; CI builds, signs and notarises it there.
+
+Install: unzip and drag {bundle} into ~/Library/Application Support/RatMode/Extensions/
+"""
+
+
+def cmd_package(args):
+    bdir, host = prepare(args, [args.pipe])
+    bundle = resolve_bundle(args.pipe, bdir)
+    if not os.path.isdir(bundle):
+        die("%s is not a .ratpipe bundle" % bundle)
+    if args.notarize and not args.identity:
+        die("--notarize needs --identity \"Developer ID Application: ...\"")
+    if (args.identity or args.notarize) and not IS_MAC:
+        die("--identity / --notarize need macOS (codesign, notarytool)")
+    if not args.skip_validate:
+        print(BOLD + "validating before packaging ..." + RESET)
+        ns = argparse.Namespace(quick=True, json=False, seeds=None, allow_single_arch=False)
+        if run_validate(host, bundle, ns).returncode != 0:
+            die("validation failed — not packaging.", 1)
+
+    man = bundle_manifest(bundle)
+    name = os.path.basename(bundle)[: -len(".ratpipe")]
+    outdir = os.path.abspath(args.out or os.path.join(ROOT, "out"))
+    os.makedirs(outdir, exist_ok=True)
+    stage = os.path.join(outdir, "stage_" + name)
+    if os.path.exists(stage):
+        shutil.rmtree(stage)
+    os.makedirs(stage)
+    staged = os.path.join(stage, os.path.basename(bundle))
+    shutil.copytree(bundle, staged, symlinks=True)
+
+    if IS_MAC:
+        run(["xattr", "-cr", staged])
+    if args.identity:
+        r = run(["codesign", "--force", "--options", "runtime", "--timestamp", "--sign", args.identity, staged])
+        if r.returncode != 0:
+            die("codesign failed", 1)
+        if run(["codesign", "--verify", "--deep", "--strict", staged]).returncode != 0:
+            die("codesign --verify failed", 1)
+    with open(os.path.join(stage, "README.txt"), "w") as f:
+        f.write(README_PACKAGE.format(name=man.get("name", name), version=man.get("version", "?"),
+                                      id=man.get("id", "?"), bundle=os.path.basename(bundle)))
+
+    zpath = os.path.join(outdir, "%s-%s.ratpipe.zip" % (name, man.get("version", "0")))
+    if os.path.exists(zpath):
+        os.remove(zpath)
+    if IS_MAC:
+        # ditto keeps symlinks, permissions and signatures intact.
+        if run(["ditto", "-c", "-k", "--keepParent", stage, zpath]).returncode != 0:
+            die("ditto failed", 1)
+    else:
+        with zipfile.ZipFile(zpath, "w", zipfile.ZIP_DEFLATED) as z:
+            for dp, _dn, fns in os.walk(stage):
+                for fn in fns:
+                    full = os.path.join(dp, fn)
+                    z.write(full, os.path.relpath(full, stage))
+    shutil.rmtree(stage)
+
+    if args.notarize:
+        cmd = ["xcrun", "notarytool", "submit", zpath, "--wait"]
+        cmd += ["--keychain-profile", args.keychain_profile]
+        if run(cmd).returncode != 0:
+            die("notarytool submission failed", 1)
+        print("note: bundles cannot be stapled inside a zip; Gatekeeper checks the ticket online.")
+    print(GREEN + "packaged " + RESET + zpath)
+    print(DIM + "Local build: loads in RatMode only with Developer mode on. Distribution goes through the ratmode-pipes catalogue (docs/SIGNING.md)." + RESET)
+    return 0
+
+
+# ── argument parsing ────────────────────────────────────────────────────────
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(prog="ratpipe", description="RatMode pipe SDK command line")
+    ap.add_argument("--build-dir", default=None, help="CMake build directory (default: <sdk>/build)")
+    ap.add_argument("--version", action="version", version="ratpipe " + sdk_version())
+    sub = ap.add_subparsers(dest="cmd", required=True)
+
+    p = sub.add_parser("new", help="create pipes/<Name> from the template")
+    p.add_argument("name")
+    p.add_argument("--kind", choices=["drum", "mono"], required=True)
+    p.add_argument("--id", help="reverse-DNS id (default com.example.<name>)")
+    p.add_argument("--author")
+    p.add_argument("--prefix", help="macro prefix, 2-6 lowercase letters (default derived from the name)")
+    p.add_argument("--display-name", help="name shown in RatMode, <= 24 characters")
+    p.add_argument("--dir", default="pipes", help="parent folder inside the SDK checkout (default: pipes)")
+    p.add_argument("--build", action="store_true", help="build and quick-validate right away")
+    p.set_defaults(fn=cmd_new)
+
+    p = sub.add_parser("build", help="configure and build everything")
+    p.add_argument("--target")
+    p.set_defaults(fn=cmd_build)
+
+    p = sub.add_parser("validate", help="run the validator (V1-V13); no names = every bundle in the build dir")
+    p.add_argument("pipes", nargs="*")
+    p.add_argument("--quick", action="store_true", help="20 fuzz seeds instead of 200")
+    p.add_argument("--seeds", type=int)
+    p.add_argument("--json", action="store_true")
+    p.add_argument("--no-build", action="store_true")
+    p.add_argument("--allow-single-arch", action="store_true", help="macOS: do not require x86_64 + arm64")
+    p.set_defaults(fn=cmd_validate)
+
+    p = sub.add_parser("render", help="render an audition WAV")
+    p.add_argument("pipe")
+    p.add_argument("--out")
+    p.add_argument("--pattern", choices=["drum16", "acid16", "chords", "silence"])
+    for o in ("bpm", "seconds", "tail", "sr", "block", "seed", "format"):
+        p.add_argument("--" + o)
+    p.add_argument("--params", choices=["default", "random", "min", "max"])
+    p.add_argument("--param", action="append", metavar="id=value")
+    p.add_argument("--no-build", action="store_true")
+    p.set_defaults(fn=cmd_render)
+
+    p = sub.add_parser("info", help="print the descriptor")
+    p.add_argument("pipe")
+    p.add_argument("--no-build", action="store_true")
+    p.set_defaults(fn=cmd_info)
+
+    p = sub.add_parser("install", help="copy the bundle to RatMode's Extensions folder (Developer mode)")
+    p.add_argument("pipe")
+    p.add_argument("--dest", help="Extensions folder (default: ~/Library/Application Support/RatMode/Extensions)")
+    p.add_argument("--skip-validate", action="store_true")
+    p.add_argument("--no-build", action="store_true")
+    p.set_defaults(fn=cmd_install)
+
+    p = sub.add_parser("uninstall", help="remove an installed bundle (by name or id)")
+    p.add_argument("pipe")
+    p.add_argument("--dest")
+    p.set_defaults(fn=cmd_uninstall)
+
+    p = sub.add_parser("package", help="zip the bundle (optionally sign / notarise) for Developer-mode testing")
+    p.add_argument("pipe")
+    p.add_argument("--identity", help="codesign identity, e.g. \"Developer ID Application: Name (TEAMID)\"")
+    p.add_argument("--notarize", action="store_true")
+    p.add_argument("--keychain-profile", default="RatMode", help="notarytool keychain profile (default: RatMode)")
+    p.add_argument("--out", help="output folder (default: <sdk>/out)")
+    p.add_argument("--skip-validate", action="store_true")
+    p.add_argument("--no-build", action="store_true")
+    p.set_defaults(fn=cmd_package)
+
+    args = ap.parse_args(argv)
+    # `--build-dir` is a global option; subparsers see it as an attribute too.
+    return args.fn(args)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -8,7 +8,11 @@
 namespace rp {
 
 constexpr const char* kHostName    = "ratpipe-host";
-constexpr const char* kHostVersion = "0.1.0";
+#ifdef RATPIPE_SDK_VERSION
+constexpr const char* kHostVersion = RATPIPE_SDK_VERSION;
+#else
+constexpr const char* kHostVersion = "0.0.0";
+#endif
 
 struct Plugin
 {

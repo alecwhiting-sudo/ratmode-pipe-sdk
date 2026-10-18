@@ -26,7 +26,7 @@ else()
 endif()
 
 target_include_directories(ratpipe-host PRIVATE "${RATPIPE_SDK_INCLUDE_DIR}")
-target_compile_definitions(ratpipe-host PRIVATE RATPIPE_HOST=1)
+target_compile_definitions(ratpipe-host PRIVATE RATPIPE_HOST=1 RATPIPE_SDK_VERSION="${PROJECT_VERSION}")
 target_compile_options(ratpipe-host PRIVATE -Wall -Wextra -fno-fast-math)
 target_link_libraries(ratpipe-host PRIVATE Threads::Threads ${CMAKE_DL_LIBS})
 set_target_properties(ratpipe-host PROPERTIES
