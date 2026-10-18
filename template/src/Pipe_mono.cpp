@@ -1,201 +1,164 @@
 // @DISPLAY@ — melodic mono pipe (starter).
 //
-// A PolyBLEP saw -> one-pole low-pass -> tanh drive, with a decaying envelope,
-// 303-style slide (glide, no retrigger) and accent. Written straight against
-// the C ABI so it builds with nothing but this repo.
+// This is the smallest useful melodic pipe: a PolyBLEP saw into a four-pole
+// ladder low-pass, a decaying envelope that also opens the filter, tanh drive,
+// 303-style slide (glide, no retrigger) and accent. It is meant to be copied
+// and changed — every number below is yours.
 //
-// TODO(sdk): port this to ratpipe/pipe_base.hpp (parameter table -> atomics,
-// event dispatch, try/catch guard, RATPIPE_DEFINE_ENTRY) once that header is
-// the recommended starting point; the DSP below should carry over unchanged.
+// How a pipe is put together (include/ratpipe/pipe_base.hpp does the ABI work):
 //
-// The rules that must hold (docs/CONTRACT.md):
-//   * render() never allocates, locks or does IO — everything is sized in create().
-//   * render() ADDS into L/R, writes only [0, n), output is finite and <= 2.0.
+//   1. an enum naming the parameters (their ORDER is the index RatMode stores);
+//   2. kInfo    — identity: id, display name, author, version, part kind,
+//                 macro prefix, the four Perform knobs, flags;
+//   3. kParams  — one ParamSpec per parameter: id "<prefix>.<path>", label
+//                 (<= 8 chars), group, default, then readout / range / mutate
+//                 band / flags via the chained setters;
+//   4. hooks    — onPrepare / onNoteOn / onNoteOff / onReleaseHeld / onAllOff
+//                 run between the samples they belong to (sample-accurate);
+//   5. render(L, R, n) — writes up to 256 samples into zeroed scratch buffers;
+//                 the base adds them into the host's buffers, replaces NaN/Inf
+//                 and clamps to +/- 2.0 (contract M3, M10);
+//   6. RATPIPE_DEFINE_ENTRY — the one exported symbol.
+//
+// Parameters arrive normalised 0..1 (Level 0..1.5) and are already atomics:
+// read them with param(i) in render() and map to engineering units yourself.
+//
+// The rules that must hold (docs/CONTRACT.md) — `ratpipe validate` checks them:
+//   * render() never allocates, locks or does IO; size everything in the
+//     constructor / onPrepare (M1).
 //   * every sound-affecting value is a declared parameter; ALL_OFF / FLUSH
-//     return the voice to silence so two instances end up identical.
-//   * only tanh-family saturation, no cubic soft-clippers.
-#include <ratpipe/ratpipe_abi.h>
-
-#include <atomic>
-#include <cmath>
-#include <cstring>
-#include <new>
+//     return the voice to silence so two instances end up identical (M7).
+//   * only tanh-family saturation (kit::sat, kit::LadderLite), never a cubic
+//     soft-clipper (M4); band-limited oscillators (kit::Osc, M5).
+#include <ratpipe/pipe_base.hpp>
+#include <ratpipe/kit/kit.hpp>
 
 namespace {
 
-constexpr double kPi = 3.14159265358979323846;
+// Parameter indices. Appending is safe; reordering or renaming an id orphans
+// the values saved in songs (contract M8).
+enum { kCutoff = 0, kDecay, kDrive, kGlide, kLevel, kParamCount };
 
-enum ParamIndex { kCutoff = 0, kDecay, kDrive, kGlide, kLevel, kParamCount };
-
-// Field order: struct_size, id, label (<= 8 chars), group, default, min, max,
-// mutate_lo, mutate_hi, flags, steps, readout_kind, readout_min, readout_max,
-// choices, reserved[8] (zero).
-const RatPipeParamDesc kParams[kParamCount] = {
-    { sizeof(RatPipeParamDesc), "@PREFIX@.cutoff", "Cut",   "Filter", 0.55f, 0.0f, 1.0f, 0.15f, 0.95f, RATPIPE_PARAM_CONTINUOUS, 0, RATPIPE_READOUT_HZ,   60.0f, 11000.0f, nullptr, { 0, 0, 0, 0, 0, 0, 0, 0 } },
-    { sizeof(RatPipeParamDesc), "@PREFIX@.decay",  "Decay", "Env",    0.40f, 0.0f, 1.0f, 0.10f, 0.90f, RATPIPE_PARAM_CONTINUOUS, 0, RATPIPE_READOUT_MS,   30.0f, 1500.0f,  nullptr, { 0, 0, 0, 0, 0, 0, 0, 0 } },
-    { sizeof(RatPipeParamDesc), "@PREFIX@.drive",  "Drive", "Tone",   0.30f, 0.0f, 1.0f, 0.00f, 0.90f, RATPIPE_PARAM_CONTINUOUS, 0, RATPIPE_READOUT_PCT,  0.0f,  100.0f,   nullptr, { 0, 0, 0, 0, 0, 0, 0, 0 } },
-    { sizeof(RatPipeParamDesc), "@PREFIX@.glide",  "Glide", "Tone",   0.35f, 0.0f, 1.0f, 0.00f, 0.80f, RATPIPE_PARAM_CONTINUOUS, 0, RATPIPE_READOUT_MS,   5.0f,  250.0f,   nullptr, { 0, 0, 0, 0, 0, 0, 0, 0 } },
-    { sizeof(RatPipeParamDesc), "@PREFIX@.level",  "Level", "Out",    1.00f, 0.0f, 1.5f, 0.00f, 0.00f, RATPIPE_PARAM_GAIN_STYLE | RATPIPE_PARAM_NOT_MUTABLE, 0, RATPIPE_READOUT_NONE, 0.0f, 0.0f, nullptr, { 0, 0, 0, 0, 0, 0, 0, 0 } },
-};
-
-// polyBLEP residual for a discontinuity at phase t (0..1) with step dt.
-inline double polyBlep(double t, double dt)
+class @NAME@Pipe : public ratpipe::Pipe<@NAME@Pipe, kParamCount>
 {
-    if (t < dt)       { t /= dt; return t + t - t * t - 1.0; }
-    if (t > 1.0 - dt) { t = (t - 1.0) / dt; return t * t + t + t + 1.0; }
-    return 0.0;
-}
+public:
+    static constexpr ratpipe::PipeInfo kInfo {
+        "@ID@",                      // id: lowercase reverse-DNS, stored by songs — never change it
+        "@DISPLAY@",                 // display name, <= 24 characters
+        "@AUTHOR@",
+        "0.1.0",                     // your version (semver)
+        RATPIPE_MONO,                // melodic: NOTE_ON / NOTE_OFF, one voice
+        "@PREFIX@",                  // macro prefix: every parameter id is "@PREFIX@.<path>"
+        { kCutoff, kDecay, kDrive, kGlide },   // the four Perform knobs (parameter indices)
+        RATPIPE_FLAG_DETERMINISTIC_WITH_SEED   // no noise: same input -> same output (the validator checks it)
+    };
 
-inline double midiToHz(int note) { return 440.0 * std::pow(2.0, ((double) note - 69.0) / 12.0); }
+    // id, label (<= 8 chars), group, default — then readout / mutate band / flags.
+    // The readout is only how RatMode prints the value; the mapping to sound
+    // happens in render(). The mutate band is the range Mutate may wander in.
+    static constexpr ratpipe::ParamSpec kParams[kParamCount] = {
+        ratpipe::ParamSpec("@PREFIX@.cutoff", "Cut",   "Filter", 0.55f).hz(60.0f, 11000.0f).mutate(0.15f, 0.95f),
+        ratpipe::ParamSpec("@PREFIX@.decay",  "Decay", "Env",    0.40f).ms(30.0f, 1500.0f).mutate(0.10f, 0.90f),
+        ratpipe::ParamSpec("@PREFIX@.drive",  "Drive", "Tone",   0.30f).pct().mutate(0.00f, 0.90f),
+        ratpipe::ParamSpec("@PREFIX@.glide",  "Glide", "Tone",   0.35f).ms(5.0f, 250.0f).mutate(0.00f, 0.80f),
+        ratpipe::ParamSpec("@PREFIX@.level",  "Level", "Out",    1.00f).gain().notMutable(),   // 0..1.5; Mutate leaves it alone
+    };
 
-struct Pipe
-{
-    // The ONLY state shared with the message thread: one atomic per parameter.
-    std::atomic<float> param[kParamCount];
+    explicit @NAME@Pipe(const ratpipe::CreateArgs& a) : Pipe(a) { onPrepare(a.sampleRate, a.maxBlock); }
 
-    double sr = 48000.0;
-    double phase = 0.0, freq = 110.0, target = 110.0;
-    float  env = 0.0f, accent = 0.0f, lp = 0.0f;
-    bool   gate = false;
-    int    note = -1;
-
-    void reset()
+    // Sample-rate (re)configuration. Also the place to size anything that
+    // depends on maxBlock — this pipe needs nothing beyond the kit objects.
+    void onPrepare(double sr, int /*maxBlock*/)
     {
-        phase = 0.0; env = 0.0f; accent = 0.0f; lp = 0.0f; gate = false; note = -1;
+        osc_.prepare(sr);
+        osc_.setWave(ratpipe::kit::Osc::Saw);
+        filt_.prepare(sr);
+        env_.prepare(sr);
+        glide_.prepare(sr);
+        onAllOff();
     }
 
-    float get(int i) const { return param[i].load(std::memory_order_relaxed); }
-
-    void noteOn(const RatPipeEvent& e)
+    void onNoteOn(const ratpipe::NoteEvent& e)
     {
-        target = midiToHz(e.note);
-        const bool slide = (e.flags & RATPIPE_EVF_SLIDE_FROM_PREV) != 0 && gate;
-        if (! slide) { freq = target; env = 1.0f; phase = 0.0; }    // legato slide: glide, don't retrigger
-        accent = (e.flags & RATPIPE_EVF_ACCENT) != 0 ? 1.0f : 0.0f;
-        gate = true;
-        note = e.note;
-    }
+        // Decay 30 ms .. 1.5 s, squared so the lower half of the knob is usable.
+        const float decayMs = 30.0f + 1470.0f * param(kDecay) * param(kDecay);
+        env_.set(1.0f, decayMs, 0.0f, 12.0f);            // attack ms, decay ms, sustain 0..1, release ms
+        glide_.setTime(5.0f + 245.0f * param(kGlide));
 
-    void handle(const RatPipeEvent& e)
-    {
-        switch (e.type)
+        // 303 semantics: a note slid into glides from the previous pitch and
+        // does NOT restart the envelope; anything else is a fresh hit.
+        const bool legato = e.slide && gate_;
+        glide_.noteOn(static_cast<float>(e.note), legato);
+        if (! legato)
         {
-            case RATPIPE_EV_NOTE_ON:  noteOn(e); break;
-            case RATPIPE_EV_NOTE_OFF:
-                // The delayed off of a slide source belongs to the note we already left.
-                if ((e.flags & RATPIPE_EVF_SLIDE_SOURCE) == 0 && e.note == note) gate = false;
-                break;
-            case RATPIPE_EV_RELEASE_HELD: gate = false; break;
-            case RATPIPE_EV_ALL_OFF:
-            case RATPIPE_EV_FLUSH:        reset(); break;
-            default: break;                                           // TRIGGER does not occur for mono pipes
+            env_.gateOn();
+            osc_.reset();
         }
+        accent_ = e.accent ? 1.0f : 0.0f;
+        amp_    = 0.6f + 0.4f * e.velocity;
+        gate_   = true;
+        note_   = e.note;
     }
 
-    void render(float* L, float* R, int n, const RatPipeEvent* ev, int evCount)
+    void onNoteOff(const ratpipe::NoteEvent& e)
     {
-        const float cutoff = get(kCutoff), decay = get(kDecay), drive = get(kDrive), glide = get(kGlide), level = get(kLevel);
+        // The delayed off of a slide source belongs to the note we already left.
+        if (! e.slideSource && e.note == note_) { gate_ = false; env_.gateOff(); }
+    }
 
-        const double decayS   = 0.03 + 1.47 * (double) decay * (double) decay;       // seconds
-        const double decayK   = std::exp(-1.0 / (decayS * 0.35 * sr));               // per-sample multiplier while gated
-        const double releaseK = std::exp(-1.0 / (0.012 * sr));                       // fast release when the gate closes
-        const double glideK   = 1.0 - std::exp(-1.0 / ((0.002 + 0.25 * (double) glide) * sr));
-        const float  gain     = 1.0f + 7.0f * drive;
-        const float  norm     = 1.0f / std::tanh(gain);                              // keeps loudness steady as Drive moves
+    void onReleaseHeld() { gate_ = false; env_.gateOff(); }
 
-        int e = 0;
-        double a = 0.0;                                                              // filter coefficient, refreshed every 32 samples
+    // ALL_OFF and FLUSH (FLUSH calls onAllOff unless you define onFlush):
+    // everything that could carry sound into the next song goes back to rest.
+    void onAllOff()
+    {
+        env_.kill();
+        filt_.reset();
+        osc_.reset();
+        gate_   = false;
+        note_   = -1;
+        accent_ = 0.0f;
+    }
+
+    // n <= 256; L and R arrive zeroed. Write every sample you want heard.
+    void render(float* L, float* R, int n)
+    {
+        if (! env_.isActive()) return;                   // silent: adding nothing is correct
+
+        const float cutoff = param(kCutoff);
+        const float drive  = 1.0f + 7.0f * param(kDrive);
+        const float level  = param(kLevel);
+        const float norm   = 1.0f / std::tanh(drive);    // keeps loudness steady as Drive moves
+        const float baseHz = 60.0f * ratpipe::kit::semitonesToRatio(cutoff * 90.0f);   // 60 Hz .. 11 kHz
+
         for (int i = 0; i < n; ++i)
         {
-            while (e < evCount && ev[e].sample_offset <= i) handle(ev[e++]);
+            const float a = env_.process();              // 0..1
+            osc_.setFrequency(glide_.tickHz());
 
+            // Coefficients at a 32-sample control rate: exp() is not free.
             if ((i & 31) == 0)
-            {
-                const double octaves = 3.0 + 8.0 * (double) cutoff + (double) env * (1.0 + 1.5 * (double) accent);
-                double fc = 40.0 * std::exp2(octaves - 3.0);
-                if (fc > 0.45 * sr) fc = 0.45 * sr;
-                a = 1.0 - std::exp(-2.0 * kPi * fc / sr);
-            }
+                filt_.set(baseHz * (1.0f + (2.0f + 3.0f * accent_) * a), 0.25f, 1.0f);
 
-            freq += (target - freq) * glideK;
-            const double dt = freq / sr;
-            phase += dt;
-            if (phase >= 1.0) phase -= 1.0;
-            const double saw = 2.0 * phase - 1.0 - polyBlep(phase, dt);
-
-            env = (float) ((double) env * (gate ? decayK : releaseK));
-            if (env < 1.0e-6f) env = 0.0f;
-
-            lp += (float) (a * (saw - (double) lp));
-            const float y = std::tanh(gain * lp) * norm * env * (0.45f + 0.25f * accent) * level;
-            L[i] += y;
-            R[i] += y;
+            const float x = filt_.process(osc_.process()) * a * amp_ * (1.0f + 0.3f * accent_);
+            // ladder <= 3, tanh < 1, level <= 1.5: the peak stays well under the 2.0 bound
+            const float y = std::tanh(x * drive) * norm * 0.5f * level;
+            L[i] = y;
+            R[i] = y;
         }
     }
-};
 
-// ── C ABI glue ───────────────────────────────────────────────────────────────
-
-void* create(double sampleRate, int32_t /*maxBlock*/, const RatPipeHostInfo* /*host*/)
-{
-    try
-    {
-        Pipe* p = new Pipe();
-        p->sr = sampleRate > 1000.0 ? sampleRate : 48000.0;
-        for (int i = 0; i < kParamCount; ++i) p->param[i].store(kParams[i].default_value, std::memory_order_relaxed);
-        return p;
-    }
-    catch (...) { return nullptr; }
-}
-
-void destroy(void* inst) { delete static_cast<Pipe*>(inst); }
-
-void prepare(void* inst, double sampleRate, int32_t /*maxBlock*/)
-{
-    Pipe* p = static_cast<Pipe*>(inst);
-    if (sampleRate > 1000.0) p->sr = sampleRate;
-    p->reset();
-}
-
-void setParam(void* inst, int32_t index, float value)
-{
-    if (index < 0 || index >= kParamCount || ! std::isfinite(value)) return;
-    static_cast<Pipe*>(inst)->param[index].store(value, std::memory_order_relaxed);
-}
-
-float getParam(void* inst, int32_t index)
-{
-    if (index < 0 || index >= kParamCount) return 0.0f;
-    return static_cast<Pipe*>(inst)->get(index);
-}
-
-void render(void* inst, float* L, float* R, int32_t n, const RatPipeEvent* events, int32_t eventCount,
-            const RatPipeTransport* /*transport*/)
-{
-    // No exception may cross the ABI.
-    try
-    {
-        // Events are only meaningful if the host's struct size matches ours (see ratpipe_abi.h).
-        if (eventCount > 0 && events[0].struct_size != sizeof(RatPipeEvent)) eventCount = 0;
-        static_cast<Pipe*>(inst)->render(L, R, n, events, eventCount);
-    }
-    catch (...) {}
-}
-
-const RatPipeDescriptor kDescriptor = {
-    sizeof(RatPipeDescriptor), RATPIPE_ABI_MAJOR, RATPIPE_ABI_MINOR,
-    0u,                                           // flags
-    "@ID@", "@DISPLAY@", "@AUTHOR@", "0.1.0", "@SDK_VERSION@",
-    RATPIPE_MONO, 0, "@PREFIX@",
-    kParams, kParamCount, 0,
-    { kCutoff, kDecay, kDrive, kGlide },          // the four Perform knobs
-    create, destroy, prepare, render, setParam, getParam,
-    nullptr, { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr }
+private:
+    ratpipe::kit::Osc        osc_;
+    ratpipe::kit::LadderLite filt_;
+    ratpipe::kit::Adsr       env_;
+    ratpipe::kit::Glide      glide_;
+    float amp_    = 0.0f;
+    float accent_ = 0.0f;
+    bool  gate_   = false;
+    int   note_   = -1;
 };
 
 } // namespace
 
-extern "C" RATPIPE_EXPORT const RatPipeDescriptor* ratpipe_entry(const RatPipeHostInfo* /*host*/)
-{
-    return &kDescriptor;
-}
+RATPIPE_DEFINE_ENTRY(@NAME@Pipe)

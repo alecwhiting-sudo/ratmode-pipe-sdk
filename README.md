@@ -9,10 +9,10 @@ enforces, and RatMode runs it in a slot with everything built-in pipes get for f
 Use this repository as a GitHub template (or clone it), add your pipe under `pipes/`,
 and iterate with the command line. MIT licence.
 
-> **Status: milestone 1.** The ABI header, build system, offline host / validator and
-> CLI are in place. The C++ helper base (`pipe_base.hpp`), the DSP kit and the example
-> pipes are being added alongside; the starter templates are written against the raw
-> C ABI so they build with nothing else.
+> **Status: milestone 1.** The ABI header, build system, offline host / validator,
+> CLI, C++ helper base (`pipe_base.hpp`) and DSP kit are in place. The starter
+> templates that `ratpipe new` copies are written against `pipe_base.hpp` and the
+> kit; the worked example pipes are being added alongside.
 
 ## Quickstart
 
