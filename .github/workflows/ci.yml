@@ -5,6 +5,7 @@ on:
   pull_request:
 
 jobs:
+  # The vendored ABI header must stay byte-identical to RatMode's copy (Arch38 OD7).
   abi-hash:
     name: ABI header is byte-identical
     runs-on: ubuntu-latest
@@ -12,3 +13,85 @@ jobs:
       - uses: actions/checkout@v4
       - name: Check ratpipe_abi.h against the recorded sha256
         run: scripts/check_abi_hash.sh
+
+  linux:
+    name: Linux build, validator fixtures, template
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build host, fixtures, examples and kit tests
+        run: cmake --build build -j 4
+
+      # ctest runs: the validator against known-good fixtures (must pass) and
+      # known-bad fixtures (each must fail its own check), the validator on every
+      # example bundle, and tests/kit when that folder exists.
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Template smoke test (new -> build -> validate -> render -> install -> package)
+        run: |
+          tools/ratpipe new CiMono --kind mono
+          tools/ratpipe new CiDrum --kind drum
+          tools/ratpipe --build-dir build-cli validate CiMono CiDrum --quick
+          tools/ratpipe --build-dir build-cli render CiMono --out out/CiMono.wav --seconds 4
+          tools/ratpipe --build-dir build-cli render CiDrum --out out/CiDrum.wav --seconds 4
+          tools/ratpipe --build-dir build-cli install CiMono --dest "$RUNNER_TEMP/Extensions"
+          tools/ratpipe uninstall CiMono --dest "$RUNNER_TEMP/Extensions"
+          tools/ratpipe --build-dir build-cli package CiMono --out out
+          ls -l out
+
+      - name: Upload audition renders
+        uses: actions/upload-artifact@v4
+        with:
+          name: audition-wavs
+          path: out/*.wav
+
+  macos:
+    name: macOS universal build, validate, lipo
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure (universal x86_64 + arm64, macOS 11)
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build -j 4
+
+      - name: Validate every bundle (includes the V12 lipo / otool checks)
+        run: ctest --test-dir build --output-on-failure -E validator.fixtures
+
+      - name: lipo, otool and codesign checks on every bundle
+        run: |
+          set -e
+          shopt -s nullglob
+          for b in build/*.ratpipe; do
+            bin=$(ls "$b"/Contents/MacOS/*.dylib)
+            archs=$(lipo -archs "$bin")
+            echo "$b: $archs"
+            case "$archs" in *x86_64*) ;; *) echo "missing x86_64 slice"; exit 1 ;; esac
+            case "$archs" in *arm64*) ;; *) echo "missing arm64 slice"; exit 1 ;; esac
+            if otool -l "$bin" | grep -q LC_RPATH; then echo "LC_RPATH present"; exit 1; fi
+            bad=$(otool -L "$bin" | tail -n +2 | awk '{print $1}' | grep -v -e '^/usr/lib/libSystem.B.dylib$' -e '^/usr/lib/libc++.1.dylib$' -e '^/usr/lib/libc++abi.dylib$' -e '^@loader_path/' || true)
+            if [ -n "$bad" ]; then echo "disallowed dylibs: $bad"; exit 1; fi
+            extra=$(nm -gU "$bin" | grep -v -e ' _ratpipe_entry$' -e '__mh_' -e 'for architecture' -e '^$' || true)
+            if [ -n "$extra" ]; then echo "extra exported symbols: $extra"; exit 1; fi
+            codesign --verify --deep --strict "$b"
+          done
+
+      - name: Template smoke test
+        run: |
+          tools/ratpipe new CiMono --kind mono
+          tools/ratpipe new CiDrum --kind drum
+          tools/ratpipe --build-dir build-cli validate CiMono CiDrum --quick
+          tools/ratpipe --build-dir build-cli render CiMono --out out/CiMono.wav --seconds 4
+
+      # The macOS real-time guard (DYLD_INTERPOSE dylib) has not been run on a Mac
+      # yet; keep its test non-blocking until it has.
+      - name: Validator fixtures with the macOS interposer (experimental)
+        continue-on-error: true
+        run: ctest --test-dir build --output-on-failure -R validator.fixtures
