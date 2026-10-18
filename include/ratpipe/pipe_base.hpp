@@ -74,12 +74,15 @@
 #endif
 
 // Apple clang lowers a zero memset of runtime size — including one it forms
-// itself from a `p[i] = 0` loop — to `___bzero` on x86_64 (`_bzero` on
-// arm64), and a constant fill loop to `_memset_pattern16`. RatMode's import
-// allowlist has `_bzero` and `_memset` but not those two, so the base zeroes
-// its scratch from a value loaded through `volatile`, which the loop-idiom
-// pass cannot turn into either call. Keep this in mind in your own render():
-// prefer writing every sample over std::fill / memset of runtime length.
+// itself from a `p[i] = 0` loop, std::fill or vector::assign — to `___bzero`
+// on x86_64 (`_bzero` on arm64), and a constant fill loop to
+// `_memset_pattern16`. RatMode builds released before its import allowlist
+// learnt those names refuse such a bundle at load (ExtMachOCheck), so the base and the kit zero every
+// runtime-length buffer with kit::zeroBuffer (kit/finite_guard.hpp), whose
+// `volatile`-sourced loop the loop-idiom pass cannot turn into either call.
+// Use it in your own pipe too: never memset / std::fill / vector::assign a
+// runtime-length buffer, on any thread (the import exists whether or not the
+// code runs). Constant-size memsets of small structs are fine (inlined).
 
 namespace ratpipe {
 
@@ -408,17 +411,10 @@ private:
         }
     }
 
-    static void zeroSamples(float* p, int32_t n) noexcept
-    {
-        volatile float source = 0.0f;           // see the note above RATPIPE_HIDDEN
-        const float z = source;
-        for (int32_t i = 0; i < n; ++i) p[i] = z;
-    }
-
     void renderChunk(float* L, float* R, int32_t len)
     {
-        zeroSamples(scratchL_, len);
-        zeroSamples(scratchR_, len);
+        kit::zeroBuffer(scratchL_, static_cast<size_t>(len));   // see the note above RATPIPE_HIDDEN
+        kit::zeroBuffer(scratchR_, static_cast<size_t>(len));
         derived().render(scratchL_, scratchR_, static_cast<int>(len));
         for (int32_t i = 0; i < len; ++i)
         {

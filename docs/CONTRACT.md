@@ -43,3 +43,23 @@ messages refer to.
 - Default values (within the declared bounds) and how the pipe sounds at defaults — though the SDK's house rule is "audible and useful at defaults, never silent, never clipping" and V4 checks the clipping half.
 
 ---
+
+## Notes for pipe authors (SDK, not part of the RatMode text above)
+
+### Runtime-length `memset` / `std::fill` / `vector::assign` and older RatMode builds
+
+RatMode checks every import of a bundle against an allowlist when it loads it
+(`Source/Ext/ExtMachOCheck.cpp`; the SDK validator's V12 runs the same check on a
+Mach-O binary). Apple clang lowers a *runtime-length* zeroing loop — `memset(p, 0, n)`,
+`std::fill(p, p + n, 0.0f)`, `vec.assign(n, 0.0f)`, even a hand-written
+`for (i < n) p[i] = 0` — to `___bzero` on x86_64 and a constant non-zero fill loop to
+`_memset_pattern16`. RatMode builds released before the allowlist learnt those names
+refuse such a bundle at load, whether or not the code ever runs: the import alone is
+enough.
+
+Use `ratpipe::kit::zeroBuffer(float*, size_t)` (in `kit/finite_guard.hpp`) for every
+runtime-length clear, on any thread; it stores a zero loaded through `volatile`, which
+the compiler cannot turn into a library call. The base and the kit already do
+(`pipe_base` scratch, `DelayLine::clear`). Constant-size `memset` of a small struct is
+fine (it is inlined). Prefer writing every output sample in `render()` over clearing
+first; `L`/`R` arrive zeroed anyway.

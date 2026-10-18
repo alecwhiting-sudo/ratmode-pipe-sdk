@@ -10,6 +10,19 @@
 //   clamp(x, lo, hi)     NaN -> lo (comparison ordering makes NaN fall to lo).
 //   guard(x, limit)      finite AND |x| <= limit, NaN/Inf -> 0.
 //   guardBuffer(p, n, l) in-place guard, returns true if anything was replaced.
+//   zeroBuffer(p, n)     zero n floats WITHOUT a memset/bzero/memset_pattern
+//                        library call (see below); use it for every runtime-
+//                        length clear in a pipe, on any thread.
+//
+// Why zeroBuffer exists: Apple clang turns a zero memset of runtime length —
+// including one it forms itself from a `p[i] = 0` loop, std::fill or
+// vector::assign — into `___bzero` on x86_64 (`_bzero` on arm64), and a
+// constant non-zero fill loop into `_memset_pattern16`. RatMode builds released
+// before its import allowlist learnt those names refuse a bundle importing
+// `___bzero` / `_memset_pattern*` at load (ExtMachOCheck), so the SDK never
+// emits them: zeroBuffer loads the
+// zero through `volatile`, which the loop-idiom pass cannot recognise as a
+// fill. The loop still vectorises.
 #pragma once
 #include <cstdint>
 #include <cstring>
@@ -65,6 +78,15 @@ inline bool guardBuffer(float* p, int n, float limit = 2.0f) noexcept
         else if (v < -limit) p[i] = -limit;
     }
     return hadNonFinite;
+}
+
+/// Zeroes n floats without a memset / bzero / memset_pattern call (see the
+/// header comment). RT-safe: no allocation, no library call.
+inline void zeroBuffer(float* p, size_t n) noexcept
+{
+    volatile float source = 0.0f;
+    const float z = source;
+    for (size_t i = 0; i < n; ++i) p[i] = z;
 }
 
 }} // namespace ratpipe::kit

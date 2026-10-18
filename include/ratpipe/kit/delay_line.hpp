@@ -18,14 +18,15 @@
 //     < 1 and |y| <= 20 * max|x|. There is no non-linearity in the loop; if you
 //     add one, use kit::sat (tanh family) only.
 //   - Damping is a one-pole low-pass in the loop (convex, cannot add gain).
-//   - A non-finite value entering the buffer clears the whole line (memset on
-//     the audio thread, bounded by the prepared size; this only ever happens
-//     after an upstream bug).
+//   - A non-finite value entering the buffer clears the whole line (a plain
+//     store loop on the audio thread — kit::zeroBuffer, never memset/bzero —
+//     bounded by the prepared size; this only ever happens after an upstream
+//     bug).
 //   - read()/write() before prepare() are no-ops returning 0.
 #pragma once
-#include <cstring>
+#include <cstddef>
+#include <memory>
 #include <new>
-#include <vector>
 #include "finite_guard.hpp"
 
 namespace ratpipe { namespace kit {
@@ -38,14 +39,16 @@ public:
     {
         if (maxSamples < 4) maxSamples = 4;
         if (maxSamples > (1 << 24)) maxSamples = 1 << 24;
-        buf_.assign(static_cast<size_t>(maxSamples), 0.0f);
-        size_ = maxSamples;
-        w_ = 0;
+        // `new float[n]` (no parentheses) leaves the storage uninitialised, so
+        // neither the allocation nor the clear below can become a bzero import.
+        buf_.reset(new (std::nothrow) float[static_cast<size_t>(maxSamples)]);
+        size_ = buf_ ? maxSamples : 0;
+        clear();
     }
 
     void clear() noexcept
     {
-        if (size_ > 0) std::memset(buf_.data(), 0, sizeof(float) * static_cast<size_t>(size_));
+        if (size_ > 0) zeroBuffer(buf_.get(), static_cast<size_t>(size_));
         w_ = 0;
     }
 
@@ -83,7 +86,7 @@ public:
     }
 
 private:
-    std::vector<float> buf_;
+    std::unique_ptr<float[]> buf_;
     int size_ = 0;
     int w_    = 0;
 };
