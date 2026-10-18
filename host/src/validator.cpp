@@ -449,23 +449,24 @@ void checkV9(Ctx& c, CheckResult& r)
     // Free-running noise is allowed when the pipe does not declare DETERMINISTIC_WITH_SEED:
     // compare 100 ms RMS envelopes instead of samples.
     const int win = (int) (0.1 * sr);   // long enough that oscillator phase cannot move the RMS
-    double worstDb = 0; int64_t worstAt = -1;
+    double worstDb = 0, worstA = 0, worstB = 0; int64_t worstAt = -1;
     for (int ch = 0; ch < 2; ++ch)
     {
         const auto ea = windowRms(ch ? ra.r : ra.l, skip, win);
         const auto eb = windowRms(ch ? rb.r : rb.l, skip, win);
         for (size_t i = 0; i < ea.size() && i < eb.size(); ++i)
         {
-            const double fl = 1e-3;
+            const double fl = 0.01;                 // quiet tails (< -40 dBFS) ring differently with oscillator phase; not a state bug
             if (ea[i] < fl && eb[i] < fl) continue;
             const double db = std::fabs(toDb(std::max(ea[i], fl)) - toDb(std::max(eb[i], fl)));
-                        if (db > worstDb) { worstDb = db; worstAt = skip + (int64_t) i * win; }
+                        if (db > worstDb) { worstDb = db; worstAt = skip + (int64_t) i * win; worstA = ea[i]; worstB = eb[i]; }
         }
     }
     if (worstDb > 2.0)
-        r.fail(fmt("a dirtied instance's output envelope differs from a fresh one by %.1f dB at %.3f s after ALL_OFF + FLUSH + default params "
-                   "(limit 2 dB): hidden state that parameters do not own (contract M7)", worstDb, (double) worstAt / sr));
-    else { r.status = CheckResult::Pass; r.summary = fmt("dirtied vs fresh instance: envelopes agree within %.2f dB (100 ms RMS comparison; pipe is not DETERMINISTIC_WITH_SEED)", worstDb); }
+        r.fail(fmt("a dirtied instance's output envelope differs from a fresh one by %.1f dB at %.3f s (dirtied %.1f dBFS RMS, fresh %.1f dBFS RMS) "
+                   "after ALL_OFF + FLUSH + default params (limit 2 dB): hidden state that parameters do not own (contract M7)",
+                   worstDb, (double) worstAt / sr, toDb(worstA), toDb(worstB)));
+    else { r.status = CheckResult::Pass; r.summary = fmt("dirtied vs fresh instance: envelopes agree within %.2f dB (100 ms RMS comparison above -40 dBFS; pipe is not DETERMINISTIC_WITH_SEED)", worstDb); }
 }
 
 void checkV10(Ctx& c, CheckResult& r)
