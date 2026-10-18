@@ -5,9 +5,11 @@
 // DC term, integrated triangle oscillators, delay feedback loops.
 //
 // Guarantees: |y| <= 2 * max|x| (worst case for a first-order HP), finite for
-// finite input, no allocation. exp() only in prepare().
+// ANY input (a non-finite sample is treated as 0; a non-finite state resets to
+// 0, matching Svf), no allocation. exp() only in prepare().
 #pragma once
 #include <cmath>
+#include "finite_guard.hpp"
 
 namespace ratpipe { namespace kit {
 
@@ -29,10 +31,12 @@ public:
 
     float process(float x) noexcept
     {
+        if (!isFinite(x)) x = 0.0f;
         const float y = x - x1_ + r_ * y1_;
         x1_ = x;
         y1_ = y;
-        return y;
+        if (!isFinite(y1_)) reset();          // cannot happen with finite x; belt and braces
+        return isFinite(y) ? y : 0.0f;
     }
 
 private:

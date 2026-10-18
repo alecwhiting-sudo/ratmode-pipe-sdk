@@ -7,12 +7,14 @@
 //   per sample: float v = s.process(target);
 //
 // Guarantees: output always between the last value and the target (never
-// overshoots), finite for finite inputs, snaps exactly onto the target once
-// within 1e-6 relative so recursive tails never go denormal or stall short.
-// No allocation, exp() only in setTime (call from prepare or a control tick,
-// not per sample).
+// overshoots), finite for ANY input (a non-finite target is ignored — the
+// smoother holds its value; a non-finite state resets to 0), snaps exactly
+// onto the target once within 1e-6 relative so recursive tails never go
+// denormal or stall short. No allocation, exp() only in setTime (call from
+// prepare or a control tick, not per sample).
 #pragma once
 #include <cmath>
+#include "finite_guard.hpp"
 
 namespace ratpipe { namespace kit {
 
@@ -39,10 +41,12 @@ public:
         coef_ = c > 1.0f ? 1.0 : (c < 1.0e-7f ? 1.0e-7 : static_cast<double>(c));
     }
 
-    void snap(float v) noexcept { y_ = v; }
+    void snap(float v) noexcept { y_ = isFinite(v) ? v : 0.0; }
 
     float process(float target) noexcept
     {
+        if (!isFinite(y_)) y_ = 0.0;
+        if (!isFinite(target)) return static_cast<float>(y_);   // hold: a NaN target is an upstream bug, not a destination
         // double accumulator: a float one stalls short of the target once
         // coef * (target - y) drops below half an ulp of y
         const double t = static_cast<double>(target);

@@ -8,8 +8,9 @@
 //   Transport sync: l.setPhase(fractional beat position).
 //
 // Guarantees: output in [-1, 1] always, finite, rate clamped to [0, sr/4]
-// (0 = frozen), deterministic given the seed passed to seed(). No allocation,
-// no libm except std::sin for the Sine shape.
+// (0 = frozen), setPhase() sanitises non-finite input, a non-finite phase
+// state resets to 0, deterministic given the seed passed to seed(). No
+// allocation, no libm except std::sin / std::cos for Sine / RandomSmooth.
 #pragma once
 #include <cmath>
 #include "finite_guard.hpp"
@@ -38,14 +39,20 @@ public:
         if (inc_ > 0.25) inc_ = 0.25;
     }
 
-    /// Set the phase (0..1) directly, e.g. from the transport.
-    void setPhase(double phase01) noexcept { phase_ = phase01 - std::floor(phase01); }
+    /// Set the phase (0..1) directly, e.g. from the transport. Wraps any finite
+    /// value; a non-finite value resets the phase to 0.
+    void setPhase(double phase01) noexcept
+    {
+        phase_ = isFinite(phase01) ? phase01 - std::floor(phase01) : 0.0;
+        if (!(phase_ >= 0.0 && phase_ < 1.0)) phase_ = 0.0;      // 1.0 can appear from rounding of tiny negatives
+    }
     void reset() noexcept { phase_ = 0.0; held_ = next_ = 0.0f; }
 
     /// Advance by `samples` samples (1 per sample, or the control-rate count).
     float tick(int samples = 1) noexcept
     {
         const double step = inc_ * static_cast<double>(samples > 0 ? samples : 1);
+        if (!isFinite(phase_)) phase_ = 0.0;
         float out = valueAt();
         phase_ += step;
         if (phase_ >= 1.0)

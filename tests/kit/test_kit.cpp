@@ -352,6 +352,33 @@ TEST(adsr_shape_and_bounds)
     for (int i = 0; i < 100; ++i) { const float v = z.process(); CHECK(isFinite(v) && v >= 0.0f && v <= 1.0f); }
 }
 
+// ── Non-finite input / state sanitising (matching Svf) ───────────────────────
+
+TEST(dcblock_smoother_lfo_sanitise_non_finite)
+{
+    const float nan = std::nanf("");
+    // DcBlock: NaN in is treated as 0; the filter keeps working afterwards.
+    DcBlock dc; dc.prepare(48000.0);
+    for (int i = 0; i < 10; ++i) CHECK(isFinite(dc.process(i % 2 ? nan : INFINITY)));
+    const float y = dc.process(1.0f);
+    CHECK(isFinite(y) && std::fabs(y - 1.0f) < 1e-3f);           // x1_ was 0, so y = 1 + r * y1 with y1 = 0
+    // OnePole: NaN target holds the current value; NaN snap resets to 0.
+    OnePole s; s.setTime(10.0f, 48000.0); s.snap(0.5f);
+    for (int i = 0; i < 10; ++i) CHECK(s.process(nan) == 0.5f);
+    CHECK(s.process(INFINITY) == 0.5f);
+    float v = 0.0f; for (int i = 0; i < 48000; ++i) v = s.process(1.0f);
+    CHECK(v == 1.0f);
+    s.snap(nan); CHECK(s.value() == 0.0f);
+    // Lfo: setPhase wraps any finite value and resets on non-finite.
+    Lfo l; l.prepare(48000.0); l.setWave(Lfo::Saw); l.setRate(1.0f);
+    l.setPhase(0.25);  CHECK_NEAR(l.process(), -0.5f, 1e-6);
+    l.setPhase(-0.25); CHECK_NEAR(l.process(),  0.5f, 1e-6);
+    l.setPhase(1.0e300); CHECK(isFinite(l.process()));
+    l.setPhase(nan);   CHECK_NEAR(l.process(), -1.0f, 1e-4);     // phase 0 -> saw at -1 (one tick of 1 Hz later)
+    l.setPhase(-INFINITY); CHECK_NEAR(l.process(), -1.0f, 1e-4);
+    for (int i = 0; i < 1000; ++i) { const float m = l.process(); CHECK(isFinite(m) && m >= -1.0f && m <= 1.0f); }
+}
+
 // ── Small helpers ────────────────────────────────────────────────────────────
 
 TEST(helpers_pitch_smoother_dcblock_lfo_guard)
