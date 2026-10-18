@@ -666,16 +666,27 @@ void checkV12(Ctx& c, CheckResult& r)
             const std::string m = "binary slices: '" + (archs.empty() ? std::string("?") : archs.substr(0, archs.find('\n'))) + "' — RatMode is universal; ship x86_64 + arm64 (contract M14)";
             if (c.opt.allowSingleArch) r.warn(m); else r.fail(m);
         }
+        // The binary's own install name (LC_ID_DYLIB) is listed by `otool -L`
+        // like a dependency; get it from `otool -D` and skip it. Lines ending
+        // in ':' are per-file / per-architecture headers.
+        std::string ownId;
+        {
+            std::istringstream ds(runCapture("otool -D '" + c.pl.binary + "' 2>/dev/null"));
+            std::string l;
+            while (std::getline(ds, l))
+                if (! l.empty() && l.back() != ':') { ownId = l.substr(l.find_first_not_of(" \t") == std::string::npos ? 0 : l.find_first_not_of(" \t")); break; }
+        }
         const std::string libs = runCapture("otool -L '" + c.pl.binary + "' 2>/dev/null");
         std::istringstream ls(libs);
-        std::string line; bool first = true;
+        std::string line;
         while (std::getline(ls, line))
         {
-            if (first) { first = false; continue; }                 // header line
+            if (! line.empty() && line.back() == ':') continue;     // header line(s)
             const size_t a = line.find_first_not_of(" \t"), b = line.find(" (");
             if (a == std::string::npos || b == std::string::npos) continue;
             const std::string lib = line.substr(a, b - a);
-            if (lib.find("@loader_path") == 0 && lib.find(baseName(c.pl.binary)) != std::string::npos) continue;   // its own install name (LC_ID_DYLIB)
+            if (lib == ownId) continue;                             // its own install name
+            if (lib.find("@loader_path") == 0 && lib.find(baseName(c.pl.binary)) != std::string::npos) continue;
             if (lib != "/usr/lib/libSystem.B.dylib" && lib != "/usr/lib/libc++.1.dylib" && lib != "/usr/lib/libc++abi.dylib")
                 r.fail("links disallowed library '" + lib + "' (RatMode loads only libSystem and libc++)");
         }

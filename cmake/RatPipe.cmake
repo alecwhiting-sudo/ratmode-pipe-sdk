@@ -139,7 +139,9 @@ function(add_ratpipe target)
     if (APPLE)
         target_link_options(${target} PRIVATE
             -Wl,-dead_strip
-            -Wl,-exported_symbol,_ratpipe_entry)
+            -Wl,-exported_symbol,_ratpipe_entry
+            # Explicit install name: never leak the absolute build path into the binary.
+            "-Wl,-install_name,@loader_path/${RP_ID}${_suffix}")
     else()
         target_link_options(${target} PRIVATE
             -Wl,--gc-sections
