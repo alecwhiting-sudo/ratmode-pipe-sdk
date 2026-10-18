@@ -1,0 +1,4 @@
+# The ABI header must stay byte-identical to RatMode's copy: no EOL conversion.
+include/ratpipe/ratpipe_abi.h   -text
+include/ratpipe/ratpipe_abi.sha256 text eol=lf
+*.sh text eol=lf

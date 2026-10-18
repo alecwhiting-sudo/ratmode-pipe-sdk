@@ -1,0 +1,11 @@
+# @DISPLAY@
+
+A @KIND@ pipe for RatMode (`@ID@`, macro prefix `@PREFIX@.`).
+
+    tools/ratpipe build
+    tools/ratpipe validate @NAME@          # the gate: must be green
+    tools/ratpipe render   @NAME@ --out out/@NAME@.wav
+    tools/ratpipe install  @NAME@          # then turn on Developer mode in RatMode
+
+Edit `src/Pipe.cpp`. The rules you must keep are in `docs/CONTRACT.md`; everything
+else (the sound, the parameters, their names and order) is yours to change.

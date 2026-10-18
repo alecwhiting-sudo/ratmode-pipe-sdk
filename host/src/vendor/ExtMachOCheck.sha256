@@ -1,0 +1,5 @@
+# sha256 of RatMode's Source/Ext/ExtMachOCheck.{cpp,h} as vendored (the files here minus
+# their provenance banner). Checked by scripts/check_macho_sync.sh. Update only when
+# re-vendoring from RatMode, in the same commit.
+9c8e5166996b41bf3acf74521afd66834624053c65ac5a8ade442ad63bd145a7  ExtMachOCheck.cpp
+cdf1db6d3ffb92dfa101adb4c8a87c8ed38f39823f21ab25f21c08fa58ec17d8  ExtMachOCheck.h

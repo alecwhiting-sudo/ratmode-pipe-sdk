@@ -1,0 +1,7 @@
+/* GNU ld version script (Linux): export exactly one symbol — contract M12 / V1. */
+{
+  global:
+    ratpipe_entry;
+  local:
+    *;
+};
