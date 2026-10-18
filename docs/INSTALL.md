@@ -1,5 +1,7 @@
 # Installing a pipe into RatMode
 
+> **Developer preview (RatMode 0.1.9+):** loading your own pipes works in Developer mode today; the signed catalogue isn't open yet.
+
 Pipes you build yourself are **local, unsigned builds**. RatMode's normal mode loads
 only bundles signed with the RatMode author's Team ID (see [SIGNING.md](SIGNING.md)),
 so to try your own pipe you turn on **Developer mode**, which exists for exactly this.
