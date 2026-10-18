@@ -2,14 +2,20 @@
 """Runs ratpipe-host against the deliberately bad fixtures and checks that each
 one fails exactly the check it was built to break (and that the control passes).
 
-usage: test_validator.py <ratpipe-host> <dir with bad_*.so>
+Also runs RatMode's vendored load-time Mach-O check (`--check-macho`) on the
+cross-built fixture dylib in <macho dir>: it must be accepted, a truncated copy
+must be refused with a reason, and a Linux .so must be reported as not Mach-O.
+
+usage: test_validator.py <ratpipe-host> <dir with bad_*.so> [<dir with *.dylib fixtures>]
 """
 import json
 import os
 import subprocess
 import sys
+import tempfile
 
 HOST, DIR = sys.argv[1], sys.argv[2]
+MACHO_DIR = sys.argv[3] if len(sys.argv) > 3 else None
 EXT = ".dylib" if sys.platform == "darwin" else ".so"
 
 # fixture -> (checks that must FAIL, extra args)
@@ -91,5 +97,26 @@ try:
     expect("crash pipe reported as crash", p.returncode == 1 and rep.get("result") == "crash", p.stdout)
 except Exception:
     expect("crash pipe reported as crash", False, p.stdout + p.stderr)
+
+# RatMode's load-time Mach-O check, on any platform (pure C++ over the bytes)
+if MACHO_DIR:
+    good = os.path.join(MACHO_DIR, "sdk_smoke_fat.dylib")
+    p = subprocess.run([HOST, "--check-macho", good], capture_output=True, text=True)
+    expect("check-macho accepts the cross-built smoke pipe (fat, 2 slices)",
+           p.returncode == 0 and "OK" in p.stdout and "2 slice" in p.stdout, p.stdout + p.stderr)
+    with open(good, "rb") as f:
+        blob = f.read()
+    with tempfile.TemporaryDirectory() as td:
+        bad = os.path.join(td, "truncated.dylib")
+        with open(bad, "wb") as f:
+            f.write(blob[: len(blob) * 2 // 3])
+        p = subprocess.run([HOST, "--check-macho", bad], capture_output=True, text=True)
+        expect("check-macho refuses a truncated image with a reason",
+               p.returncode == 1 and "REFUSED" in p.stdout and len(p.stdout.strip()) > len(bad) + 12, p.stdout + p.stderr)
+    p = subprocess.run([HOST, "--check-macho", os.path.join(DIR, "control" + EXT)], capture_output=True, text=True)
+    if sys.platform == "darwin":
+        expect("check-macho on the control library", p.returncode in (0, 1), p.stdout)
+    else:
+        expect("check-macho reports a Linux .so as not Mach-O (rc 2)", p.returncode == 2 and "NOT MACH-O" in p.stdout, p.stdout + p.stderr)
 
 sys.exit(1 if failures else 0)

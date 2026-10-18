@@ -7,6 +7,7 @@
 #include "plugin.hpp"
 #include "rtguard.hpp"
 #include "util.hpp"
+#include "vendor/ExtMachOCheck.h"
 #include <algorithm>
 #include <cctype>
 #include <atomic>
@@ -559,6 +560,28 @@ void checkV11(Ctx& c, CheckResult& r)
 
 // ── V12 ──────────────────────────────────────────────────────────────────────
 
+} // namespace
+
+// Runs RatMode's vendored ExtMachOCheck over a file image. Returns false when the
+// bytes are not a Mach-O image at all (thin 64-bit, either byte order, or fat).
+bool checkMachOBytes(const std::string& bytes, MachOVerdict& out)
+{
+    out = MachOVerdict{};
+    if (bytes.size() < 4) return false;
+    const uint8_t* b = reinterpret_cast<const uint8_t*>(bytes.data());
+    const uint32_t le = (uint32_t) b[0] | ((uint32_t) b[1] << 8) | ((uint32_t) b[2] << 16) | ((uint32_t) b[3] << 24);
+    const uint32_t be = (uint32_t) b[3] | ((uint32_t) b[2] << 8) | ((uint32_t) b[1] << 16) | ((uint32_t) b[0] << 24);
+    const bool magic = le == 0xFEEDFACFu || le == 0xFEEDFACEu || be == 0xFEEDFACFu || be == 0xFEEDFACEu   // thin, either order
+                    || be == 0xCAFEBABEu || be == 0xCAFEBABFu;                                             // fat (big-endian on disk)
+    if (! magic) return false;
+    out.isMachO = true;
+    const openmusic::machocheck::Result res = openmusic::machocheck::checkImage(b, bytes.size());
+    out.ok = res.ok; out.reason = res.reason; out.slices = res.slices; out.imports = res.imports;
+    return true;
+}
+
+namespace {
+
 [[maybe_unused]] std::string runCapture(const std::string& cmd)
 {
     std::string out;
@@ -583,7 +606,28 @@ std::string plistString(const std::string& plist, const std::string& key)
 
 void checkV12(Ctx& c, CheckResult& r)
 {
-    if (c.pl.bundleDir.empty()) { r.skip("not a .ratpipe bundle (raw library given)"); return; }
+    // RatMode's own load-time Mach-O check (vendored byte-identical in src/vendor/) runs
+    // on any Mach-O binary, bundle or raw library, on every platform: it is pure C++ over
+    // the file bytes, so a Linux CI job cross-checks a cross-built dylib the same way
+    // RatMode will on a Mac. A rejection is reported with the checker's exact reason.
+    bool machO = false;
+    {
+        std::string bytes;
+        MachOVerdict v;
+        if (slurp(c.pl.binary, bytes) && checkMachOBytes(bytes, v) && v.isMachO)
+        {
+            machO = true;
+            if (! v.ok) r.fail("RatMode's load-time Mach-O check refuses this binary: " + v.reason + " (RatMode would not load the bundle)");
+            else r.info(fmt("RatMode's load-time Mach-O check (ExtMachOCheck) accepts the binary: %d slice(s), %d distinct import(s), all allowlisted", v.slices, v.imports));
+        }
+    }
+
+    if (c.pl.bundleDir.empty())
+    {
+        if (! machO) { r.skip("not a .ratpipe bundle (raw library given)"); return; }
+        if (r.status != CheckResult::Fail) { r.status = CheckResult::Pass; r.summary = "raw Mach-O library: ExtMachOCheck accepts it (no bundle to check)"; }
+        return;
+    }
     const std::string id = c.d->id;
     const std::string dir = c.pl.bundleDir;
 
@@ -644,10 +688,12 @@ void checkV12(Ctx& c, CheckResult& r)
     {
         r.status = CheckResult::Pass;
         r.summary = "Info.plist, manifest.json and descriptor agree";
+        if (machO) r.summary += "; RatMode's ExtMachOCheck accepts the binary";
        #if defined(__APPLE__)
         r.summary += "; universal slices, allowed dylibs, no LC_RPATH";
        #else
-        r.info("lipo / otool checks (universal slices, allowed dylibs, LC_RPATH) only run on macOS");
+        if (! machO) r.info("binary is not Mach-O: RatMode's load-time check (ExtMachOCheck), lipo and otool checks only apply to a macOS build");
+        else r.info("lipo / otool checks (universal slices) only run on macOS");
        #endif
     }
 }

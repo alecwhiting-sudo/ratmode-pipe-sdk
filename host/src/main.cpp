@@ -24,6 +24,8 @@
 #include <chrono>
 #include <fstream>
 #include <poll.h>
+#include <sstream>
+#include <sys/stat.h>
 #include <sys/mman.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -46,6 +48,7 @@ void usage(std::FILE* f)
         "  ratpipe-host info     <bundle|lib>\n"
         "  ratpipe-host --dump-manifest <bundle|lib> [--out FILE] [--expect-id ID] [--min-ratmode-version V]\n"
         "  ratpipe-host --dump-plist    <bundle|lib> [--out FILE] [--expect-id ID]\n"
+        "  ratpipe-host --check-macho   <dylib|bundle>...     RatMode's load-time Mach-O check, any platform\n"
         "\n"
         "exit codes: 0 ok, 1 validation failed / pipe crashed or hung, 2 usage or load error\n", f);
 }
@@ -124,6 +127,34 @@ int cmdDump(bool plist, const Args& a)
     }
     const std::string text = plist ? buildPlist(pl.desc, pl.binary.substr(pl.binary.rfind('/') + 1)) : buildManifest(pl.desc, a.get("min-ratmode-version", "0.1.8"));
     return writeFileOrStdout(a.get("out"), text) ? 0 : 2;
+}
+
+// ── check-macho ──────────────────────────────────────────────────────────────
+
+// Runs RatMode's vendored ExtMachOCheck on each file (a .ratpipe bundle resolves to
+// its binary). Pure C++ over the bytes, so a Linux CI job can check a cross-built
+// dylib exactly as RatMode will at load. Exit 0 all accepted, 1 any refused, 2 a
+// file is unreadable or not Mach-O.
+int cmdCheckMachO(const Args& a)
+{
+    if (a.pos.empty()) { usage(stderr); return 2; }
+    int rc = 0;
+    for (const std::string& given : a.pos)
+    {
+        std::string binary = given, bundleDir, err;
+        struct stat st;
+        if (::stat(given.c_str(), &st) == 0 && S_ISDIR(st.st_mode) && ! resolveBinary(given, binary, bundleDir, err))
+        { std::printf("%s: REFUSED  %s\n", given.c_str(), err.c_str()); rc = std::max(rc, 2); continue; }
+        std::ifstream f(binary, std::ios::binary);
+        if (! f) { std::printf("%s: UNREADABLE\n", binary.c_str()); rc = std::max(rc, 2); continue; }
+        std::ostringstream ss; ss << f.rdbuf();
+        MachOVerdict v;
+        if (! checkMachOBytes(ss.str(), v))
+        { std::printf("%s: NOT MACH-O  (not a macOS binary; nothing for RatMode's check to say)\n", binary.c_str()); rc = std::max(rc, 2); continue; }
+        if (v.ok) std::printf("%s: OK  %d slice(s), %d distinct import(s), all allowlisted — RatMode will load it\n", binary.c_str(), v.slices, v.imports);
+        else { std::printf("%s: REFUSED  %s — RatMode would not load this bundle\n", binary.c_str(), v.reason.c_str()); rc = std::max(rc, 1); }
+    }
+    return rc;
 }
 
 // ── info ─────────────────────────────────────────────────────────────────────
@@ -399,6 +430,7 @@ int main(int argc, char** argv)
     if (cmd == "info")     { return cmdInfo(a); }
     if (cmd == "--dump-manifest") return cmdDump(false, a);
     if (cmd == "--dump-plist")    return cmdDump(true, a);
+    if (cmd == "--check-macho" || cmd == "check-macho") return cmdCheckMachO(a);
 
     std::fprintf(stderr, "ratpipe-host: unknown command '%s'\n", cmd.c_str());
     usage(stderr);

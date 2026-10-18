@@ -7,9 +7,11 @@
 
 find_package(Threads REQUIRED)
 
+# src/vendor/ExtMachOCheck.cpp is RatMode's load-time Mach-O check, vendored
+# byte-identical (scripts/check_macho_sync.sh); V12 runs it on any Mach-O binary.
 set(RATPIPE_HOST_SOURCES
     src/main.cpp src/validator.cpp src/engine.cpp src/plugin.cpp src/patterns.cpp
-    src/manifest.cpp src/exports.cpp src/rtguard_host.cpp)
+    src/manifest.cpp src/exports.cpp src/rtguard_host.cpp src/vendor/ExtMachOCheck.cpp)
 
 if (APPLE)
     add_executable(ratpipe-host ${RATPIPE_HOST_SOURCES})

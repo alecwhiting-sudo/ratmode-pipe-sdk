@@ -50,5 +50,5 @@ find_package(Python3 COMPONENTS Interpreter)
 if (Python3_FOUND)
     add_test(NAME validator.fixtures
              COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test_validator.py"
-                     "$<TARGET_FILE:ratpipe-host>" "${CMAKE_CURRENT_BINARY_DIR}/bad")
+                     "$<TARGET_FILE:ratpipe-host>" "${CMAKE_CURRENT_BINARY_DIR}/bad" "${RP_FIX}/macho")
 endif()

@@ -13,6 +13,10 @@ jobs:
       - uses: actions/checkout@v4
       - name: Check ratpipe_abi.h against the recorded sha256
         run: scripts/check_abi_hash.sh
+      # host/src/vendor/ExtMachOCheck.{h,cpp} is RatMode's load-time Mach-O check,
+      # vendored byte-identical so V12 == "RatMode will load it".
+      - name: Check the vendored ExtMachOCheck against the recorded sha256
+        run: scripts/check_macho_sync.sh
 
   linux:
     name: Linux build, validator fixtures, template

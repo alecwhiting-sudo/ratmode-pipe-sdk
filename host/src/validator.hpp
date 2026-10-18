@@ -47,6 +47,20 @@ struct ValidationReport
 
 ValidationReport validatePipe(const std::string& path, const ValidateOptions& opts);
 
+// RatMode's load-time Mach-O check (vendored byte-identical in src/vendor/), run over a
+// whole file image. Returns false when the bytes are not Mach-O at all; otherwise
+// `out.ok` says whether RatMode would load it and `out.reason` is the checker's own
+// first-failure text. Pure C++: works on every platform (V12 and --check-macho).
+struct MachOVerdict
+{
+    bool isMachO = false;
+    bool ok = false;
+    std::string reason;
+    int slices = 0;
+    int imports = 0;
+};
+bool checkMachOBytes(const std::string& bytes, MachOVerdict& out);
+
 std::string reportToText(const ValidationReport& r, bool color);
 std::string reportToJson(const ValidationReport& r);
 

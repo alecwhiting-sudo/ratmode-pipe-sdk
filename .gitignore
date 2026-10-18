@@ -14,3 +14,4 @@ __pycache__/
 .idea/
 CMakeUserPresets.json
 !host/tests/fixtures/**/*.wav
+!host/tests/fixtures/**/*.dylib
