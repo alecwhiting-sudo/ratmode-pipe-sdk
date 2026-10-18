@@ -7,7 +7,10 @@
 //
 //   M2  every parameter is a std::atomic<float> (static_assert lock-free),
 //       written by set_param on the message thread, read in render;
-//   M3  output is finite (NaN/Inf -> 0, counted) and clamped to +/- kOutputClamp;
+//   M3  output is finite (NaN/Inf -> 0, counted) and clamped to +/- kOutputClamp
+//       (4.0, the same hard limit RatMode's ExtPipe applies; clamped samples
+//       are counted too — the validator's 2.0 peak check still sees anything
+//       between 2 and 4, and a clamp at 4 is still > 2);
 //   M10 render is additive and never touches samples outside [0, n);
 //   M12 nothing escapes across the ABI: every entry point is wrapped in
 //       try/catch(...) — an exception leaves the rest of the block silent and
@@ -177,7 +180,7 @@ struct TriggerEvent
 
 struct NoteEvent
 {
-    int   note;            // 0..127
+    int   note;            // 0..127 (clamped by the base)
     float velocity;        // 0..1 (NOTE_ON)
     int   step;            // pattern step, -1 if none
     bool  slide;           // NOTE_ON: glide from the previous note, do not retrigger
@@ -266,7 +269,7 @@ class Pipe
 public:
     static constexpr int kNumParams   = NumParams;
     static constexpr int kChunk       = 256;    // render() is never asked for more than this at once
-    static constexpr float kOutputClamp = 2.0f;  // contract M3 peak bound, applied per sample
+    static constexpr float kOutputClamp = 4.0f;  // hard safety clamp per sample (= RatMode ExtPipe); the contract M3 bound is 2.0, checked by the validator
 
     static_assert(NumParams >= 1 && NumParams <= 256, "a pipe declares 1..256 parameters");
 
@@ -300,8 +303,16 @@ public:
     /// Diagnostics (not shared state: written and read on the audio thread only).
     uint32_t faults() const noexcept { return faults_; }
     uint32_t nonFiniteSamples() const noexcept { return nonFinite_; }
+    /// Samples that hit the +/- kOutputClamp hard limit. Any count > 0 means
+    /// the pipe already violated contract M3 (peak <= 2.0): fix the gain.
+    uint32_t clampedSamples() const noexcept { return clamped_; }
 
     // ── hooks with defaults (define the same name in Derived to override) ──
+    /// prepare() is called by every shipped host (RatMode included) only while
+    /// render is NOT running — RatMode gates it through its render handshake,
+    /// and the SDK host never overlaps the two — so onPrepare may re-size
+    /// state and reset DSP blocks without any synchronisation of its own.
+    /// It is still called after the constructor, possibly more than once.
     void onPrepare(double, int) noexcept {}
     void onTrigger(const TriggerEvent&) noexcept {}
     void onNoteOn(const NoteEvent&) noexcept {}
@@ -395,13 +406,13 @@ private:
                 derived().onTrigger(TriggerEvent{ kit::clamp01(x.velocity), x.sub_index, x.semitone_offset, x.step_index });
                 break;
             case RATPIPE_EV_NOTE_ON:
-                derived().onNoteOn(NoteEvent{ x.note, kit::clamp01(x.velocity), x.step_index,
+                derived().onNoteOn(NoteEvent{ clampNote(x.note), kit::clamp01(x.velocity), x.step_index,
                                               (x.flags & RATPIPE_EVF_SLIDE_FROM_PREV) != 0,
                                               (x.flags & RATPIPE_EVF_ACCENT) != 0,
                                               false, x.chord });
                 break;
             case RATPIPE_EV_NOTE_OFF:
-                derived().onNoteOff(NoteEvent{ x.note, 0.0f, x.step_index, false, false,
+                derived().onNoteOff(NoteEvent{ clampNote(x.note), 0.0f, x.step_index, false, false,
                                                (x.flags & RATPIPE_EVF_SLIDE_SOURCE) != 0, x.chord });
                 break;
             case RATPIPE_EV_ALL_OFF:      derived().onAllOff(); break;
@@ -410,6 +421,8 @@ private:
             default: break;
         }
     }
+
+    static int clampNote(int32_t n) noexcept { return n < 0 ? 0 : (n > 127 ? 127 : static_cast<int>(n)); }
 
     void renderChunk(float* L, float* R, int32_t len)
     {
@@ -421,8 +434,10 @@ private:
             float l = scratchL_[i], r = scratchR_[i];
             if (!kit::isFinite(l)) { l = 0.0f; ++nonFinite_; }
             if (!kit::isFinite(r)) { r = 0.0f; ++nonFinite_; }
-            L[i] += kit::clamp(l, -kOutputClamp, kOutputClamp);
-            R[i] += kit::clamp(r, -kOutputClamp, kOutputClamp);
+            if (l > kOutputClamp) { l = kOutputClamp; ++clamped_; } else if (l < -kOutputClamp) { l = -kOutputClamp; ++clamped_; }
+            if (r > kOutputClamp) { r = kOutputClamp; ++clamped_; } else if (r < -kOutputClamp) { r = -kOutputClamp; ++clamped_; }
+            L[i] += l;
+            R[i] += r;
         }
     }
 
@@ -435,6 +450,7 @@ private:
     bool     hasTransport_ = false;
     uint32_t faults_ = 0;
     uint32_t nonFinite_ = 0;
+    uint32_t clamped_ = 0;
     float    scratchL_[kChunk];
     float    scratchR_[kChunk];
 };

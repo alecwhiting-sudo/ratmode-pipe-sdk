@@ -234,7 +234,9 @@ TEST(non_finite_and_loud_output_is_sanitised)
     CHECK(tp->mode() == TestPipe::Loud);
     Buffers l(100);
     d->render(inst, l.l(), l.r(), 100, nullptr, 0, nullptr);
-    for (int i = 0; i < 100; ++i) { CHECK(l.l()[i] == 2.0f); CHECK(l.r()[i] == -2.0f); }   // clamped to +/-2
+    for (int i = 0; i < 100; ++i) { CHECK(l.l()[i] == 4.0f); CHECK(l.r()[i] == -4.0f); }   // hard-clamped to +/-4 (RatMode's ExtPipe limit)
+    CHECK(tp->clampedSamples() == 200);
+    CHECK(tp->nonFiniteSamples() == 300);                                                // clamps are counted separately
     d->destroy(inst);
 }
 

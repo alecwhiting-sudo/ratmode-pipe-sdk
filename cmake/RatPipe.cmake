@@ -44,6 +44,18 @@ get_filename_component(_RATPIPE_SDK_ROOT "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE
 set(RATPIPE_SDK_INCLUDE_DIR "${_RATPIPE_SDK_ROOT}/include" CACHE INTERNAL "")
 set(_RATPIPE_CMAKE_DIR "${CMAKE_CURRENT_LIST_DIR}")
 
+# The SDK version (VERSION at the repo root) is stamped into every pipe's
+# descriptor as sdk_version via RATPIPE_SDK_VERSION_STRING (pipe_base.hpp
+# falls back to its own constant when the definition is absent).
+if (EXISTS "${_RATPIPE_SDK_ROOT}/VERSION")
+    file(STRINGS "${_RATPIPE_SDK_ROOT}/VERSION" _RATPIPE_SDK_VERSION LIMIT_COUNT 1)
+    string(STRIP "${_RATPIPE_SDK_VERSION}" _RATPIPE_SDK_VERSION)
+endif()
+if (NOT _RATPIPE_SDK_VERSION)
+    set(_RATPIPE_SDK_VERSION "0.0.0")
+endif()
+set(RATPIPE_SDK_VERSION "${_RATPIPE_SDK_VERSION}" CACHE INTERNAL "")
+
 if (NOT DEFINED RATPIPE_BUNDLE_OUTPUT_DIR)
     set(RATPIPE_BUNDLE_OUTPUT_DIR "${CMAKE_BINARY_DIR}")
 endif()
@@ -112,7 +124,9 @@ function(add_ratpipe target)
 
     add_library(${target} SHARED ${RP_SOURCES})
     target_include_directories(${target} PRIVATE "${RATPIPE_SDK_INCLUDE_DIR}" ${RP_INCLUDE_DIRECTORIES})
-    target_compile_definitions(${target} PRIVATE ${RP_COMPILE_DEFINITIONS})
+    target_compile_definitions(${target} PRIVATE
+        "RATPIPE_SDK_VERSION_STRING=\"${_RATPIPE_SDK_VERSION}\""
+        ${RP_COMPILE_DEFINITIONS})
     target_compile_options(${target} PRIVATE
         -fno-fast-math -fvisibility=hidden
         $<$<COMPILE_LANGUAGE:CXX>:-fvisibility-inlines-hidden>
