@@ -70,7 +70,16 @@ bool available(std::string& whyNot)
 void ensurePreloaded(char** argv)
 {
 #if defined(__APPLE__)
-    if (std::getenv("RATPIPE_RTGUARD_PRELOADED") != nullptr) return;
+    if (std::getenv("RATPIPE_RTGUARD_PRELOADED") != nullptr)
+    {
+        // dyld consumed the insert variable when this (re-exec'd) process
+        // started; the guard is already loaded. Drop the variable so child
+        // processes (nm / lipo / otool spawned by V1/V12) don't inherit it:
+        // Apple's arm64e system tools abort at launch when the fat
+        // x86_64+arm64 guard dylib has no slice for them.
+        unsetenv("DYLD_INSERT_LIBRARIES");
+        return;
+    }
     char path[4096]; uint32_t sz = sizeof path;
     if (_NSGetExecutablePath(path, &sz) != 0) return;
     std::string exe(path);
