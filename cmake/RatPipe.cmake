@@ -77,7 +77,7 @@ function(add_ratpipe target)
         "SOURCES;INCLUDE_DIRECTORIES;COMPILE_DEFINITIONS;COMPILE_OPTIONS;LINK_LIBRARIES" ${ARGN})
 
     if (WIN32)
-        message(FATAL_ERROR "add_ratpipe: Windows bundles are not supported yet (Arch38 OD13).")
+        message(FATAL_ERROR "add_ratpipe: Windows bundles are not supported yet (platform-neutral ABI; Windows later).")
     endif()
     if (NOT RP_ID)
         message(FATAL_ERROR "add_ratpipe(${target}): ID <reverse.dns.id> is required")

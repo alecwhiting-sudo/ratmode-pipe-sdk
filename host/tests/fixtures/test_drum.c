@@ -1,5 +1,5 @@
 /*
- * test_drum — in-repo TEST EXTENSION for the Arch38 loader (NOT an engine,
+ * test_drum — in-repo TEST EXTENSION for the extension loader (NOT an engine,
  * NOT shipped). A drum part: sine kick with a pitch envelope, a short
  * noise click and tanh drive, implemented straight against ratpipe_abi.h
  * in plain C11. Same constraints as test_tone.c: libm + calloc/free only,

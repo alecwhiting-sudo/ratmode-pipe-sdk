@@ -6,18 +6,18 @@ Short and blunt version:
 
 > RatMode only loads bundles signed with the RatMode author's Apple Team ID.
 > **You cannot sign your own pipe for distribution.** To ship a pipe, submit its
-> *source* to the `ratmode-pipes` catalogue repository; its CI builds, signs and
-> notarises it with the author's Developer ID.
+> *source* to the `ratmode-pipes` catalogue repository; its CI will build, sign and
+> notarise it with the author's Developer ID.
 > A bundle you build locally loads only with **Developer mode** on, after a consent
 > prompt, and is shown with an **Unverified** badge. It is for your own testing and
 > is not distributable.
 
-## Why
+## Why, and the planned catalogue process
 
 Third-party pipes run inside the RatMode process with RatMode's own access. In-process
 code cannot be fully fenced, so distribution is curated rather than open:
 
-1. A developer submits a pipe as **source** (a pull request to `ratmode-pipes`, not to
+1. Planned flow: a developer will submit a pipe as **source** (a pull request to `ratmode-pipes`, not to
    this template repo).
 2. Catalogue CI runs, in order: an automated review of the source for malicious intent;
    a header lint that allows only approved headers (no file, network, thread, process
@@ -29,7 +29,7 @@ code cannot be fully fenced, so distribution is curated rather than open:
 3. The author reviews and merges.
 4. CI builds from the merged source, then signs and notarises with the author's
    Developer ID.
-5. The author publishes the result for licence holders.
+5. The author will publish the result for licence holders.
 
 At run time RatMode adds a second line of defence: in normal mode the code signature's
 Team ID is checked on **every load** (whatever the quarantine flag says), the same

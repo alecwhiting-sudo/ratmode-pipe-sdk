@@ -13,7 +13,7 @@ A bundle that works this way shows an **Unverified** badge and is not distributa
   (`xcode-select --install`), CMake 3.22 or later and Python 3.
 * RatMode, with a licence that reaches CONFIGURE (extensions are picked in CONFIGURE,
   which needs the paid tier). SDK developers can get a free developer key from the
-  RatMode author; ask when you start.
+  RatMode author; ask by opening a GitHub Issue on this repo.
 * On Linux you can build, validate and render (`ratpipe validate`, `ratpipe render`),
   which is how CI and Claude Code on the web work. You cannot install: RatMode is a
   macOS app.

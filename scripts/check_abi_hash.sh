@@ -2,7 +2,7 @@
 # scripts/check_abi_hash.sh — the vendored ABI header must never change here.
 #
 # ratpipe_abi.h is OWNED by RatMode (Source/Ext/ratpipe_abi.h); this repo
-# carries a byte-identical copy (Arch38 OD7). This script fails when:
+# carries a byte-identical copy (the app repo's header is the source of truth). This script fails when:
 #   1. include/ratpipe/ratpipe_abi.h does not hash to the value recorded in
 #      include/ratpipe/ratpipe_abi.sha256, or
 #   2. (optional) a RatMode checkout path is given and its copy differs.

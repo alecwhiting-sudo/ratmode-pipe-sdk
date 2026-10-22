@@ -1,4 +1,4 @@
-// The validator suite V1-V13 (Arch38 §7.4). Every check maps to a MUST in
+// The validator suite V1-V13. Every check maps to a MUST in
 // docs/CONTRACT.md.
 #pragma once
 #include <cstdint>

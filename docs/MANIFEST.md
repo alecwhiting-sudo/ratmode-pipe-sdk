@@ -32,7 +32,7 @@ overrides it; RatMode never accepts a path.
 | `part_kind` | `"drum"` (receives TRIGGER events), `"mono"` (NOTE_ON/OFF, one voice expected) or `"poly"` (NOTE_ON/OFF; chord expansion arrives in a later milestone, so a poly pipe receives the root note only for now). |
 | `macro_prefix` | 2 to 6 lowercase letters. Every parameter id is `<prefix>.<path>`. Must not be one of the reserved prefixes below. |
 | `abi_major` | must equal the host's ABI major (currently `1`). A mismatch shows as "Built for ABI N, this RatMode speaks ABI M". |
-| `min_ratmode_version` | oldest RatMode that may load it. Default `0.1.8`; override per target with `MIN_RATMODE_VERSION` in `add_ratpipe()`. |
+| `min_ratmode_version` | oldest RatMode that may load it. Default `0.1.8`; override per target with `MIN_RATMODE_VERSION` in `add_ratpipe()`. The default (0.1.8) is more permissive than the documented minimum; set it explicitly for anything that relies on 0.1.9 behaviour. |
 | `perform_knobs` | four parameter indices for the pre-assigned Perform knobs, or `-1` for a placeholder. |
 | `binary` | optional, see above. |
 

@@ -4,7 +4,7 @@
 // monotone, odd-or-offset-corrected, and hard-bounded, so it is safe inside a
 // feedback path. There is deliberately no cubic / polynomial soft clipper: a
 // polynomial grows without bound outside its design range and has blown up a
-// feedback loop before (RatMode Arch17).
+// feedback loop before (it crashed RatMode once).
 //
 //   sat::tanhDrive(x, drive)       tanh(drive * x)                       |y| < 1
 //   sat::asymTanh(x, drive, bias)  tanh(drive*x + bias) - tanh(bias)     |y| < 2, zero at x = 0
