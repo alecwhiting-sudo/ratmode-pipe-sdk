@@ -95,7 +95,7 @@ jobs:
             case "$archs" in *x86_64*) ;; *) echo "missing x86_64 slice"; exit 1 ;; esac
             case "$archs" in *arm64*) ;; *) echo "missing arm64 slice"; exit 1 ;; esac
             if otool -l "$bin" | grep -q LC_RPATH; then echo "LC_RPATH present"; exit 1; fi
-            bad=$(otool -L "$bin" | tail -n +2 | awk '{print $1}' | grep -v -e '^/usr/lib/libSystem.B.dylib$' -e '^/usr/lib/libc++.1.dylib$' -e '^/usr/lib/libc++abi.dylib$' -e '^@loader_path/' || true)
+            bad=$(otool -L "$bin" | awk '/^\t/{print $1}' | grep -v -e '^/usr/lib/libSystem.B.dylib$' -e '^/usr/lib/libc++.1.dylib$' -e '^/usr/lib/libc++abi.dylib$' -e '^@loader_path/' || true)
             if [ -n "$bad" ]; then echo "disallowed dylibs: $bad"; exit 1; fi
             extra=$(nm -gU "$bin" | grep -v -e ' _ratpipe_entry$' -e '__mh_' -e 'for architecture' -e '^$' || true)
             if [ -n "$extra" ]; then echo "extra exported symbols: $extra"; exit 1; fi
