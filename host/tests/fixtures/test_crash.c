@@ -1,6 +1,6 @@
 /*
- * test_crash — DELIBERATELY CRASHING test extension for the Arch38
- * quarantine test (T5 / §13d "crash test"). Built ONLY when the CMake option
+ * test_crash — DELIBERATELY CRASHING test extension for the
+ * quarantine (crash-recovery) test. Built ONLY when the CMake option
  * RATMODE_BUILD_TEST_CRASH_PIPE is ON (default OFF). Never install this
  * next to work you care about: the first render() writes through NULL and
  * kills RatMode on purpose, once. The crash marker RatMode wrote before the

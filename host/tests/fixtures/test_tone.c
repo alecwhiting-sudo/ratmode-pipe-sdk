@@ -1,5 +1,5 @@
 /*
- * test_tone — in-repo TEST EXTENSION for the Arch38 loader (NOT an engine,
+ * test_tone — in-repo TEST EXTENSION for the extension loader (NOT an engine,
  * NOT shipped). A melodic mono part implemented straight against
  * ratpipe_abi.h in plain C11: PolyBLEP saw/square, a tanh-bounded two-pole
  * resonant filter, a decay envelope, note on/off/slide/accent handling.

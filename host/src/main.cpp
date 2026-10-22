@@ -1,4 +1,4 @@
-// ratpipe-host — the SDK's offline host and validator (Arch38 §7.3).
+// ratpipe-host — the SDK's offline host and validator.
 //
 //   ratpipe-host validate <bundle|lib> [options]     V1-V13
 //   ratpipe-host render   <bundle|lib> [options]     deterministic audition WAV

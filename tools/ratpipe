@@ -283,7 +283,7 @@ def cmd_install(args):
     print(GREEN + "installed " + RESET + target)
     print(
         "\nThis is a LOCAL, unsigned build: RatMode's normal mode will NOT load it.\n"
-        "  1. In RatMode turn on Developer mode (Settings), read the warning.\n"
+        "  1. In RatMode turn on Developer mode (CONFIGURE > Extension > Manage extensions...), read the warning.\n"
         "  2. CONFIGURE -> pick the pipe under Extension -> warning -> Allow.\n"
         "  3. The pipe shows an 'Unverified' badge. It is not distributable (docs/SIGNING.md).\n"
         "Rebuilding changes the binary hash, so RatMode asks for consent again.")
@@ -310,7 +310,7 @@ README_PACKAGE = """{name} {version} — RatMode pipe ({id})
 
 LOCAL / DEVELOPER-MODE BUILD. RatMode's normal mode only loads bundles signed with
 the RatMode author's Team ID, so this archive will not load unless Developer mode is
-on (Settings), and then only after a consent prompt, with an "Unverified" badge.
+on (CONFIGURE > Extension > Manage extensions...), and then only after a consent prompt, with an "Unverified" badge.
 It is not a distributable release. To ship a pipe, submit its SOURCE to the
 ratmode-pipes catalogue; CI builds, signs and notarises it there.
 

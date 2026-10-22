@@ -5,7 +5,7 @@ on:
   pull_request:
 
 jobs:
-  # The vendored ABI header must stay byte-identical to RatMode's copy (Arch38 OD7).
+  # The vendored ABI header must stay byte-identical to RatMode's copy (the app repo's header is the source of truth).
   abi-hash:
     name: ABI header is byte-identical
     runs-on: ubuntu-latest

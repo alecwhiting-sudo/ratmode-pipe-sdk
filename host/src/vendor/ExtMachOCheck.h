@@ -19,7 +19,7 @@
 // --- end of SDK provenance banner; everything below is byte-identical to RatMode ---
 #pragma once
 /// ExtMachOCheck — load-time "binary permissions" check for .ratpipe bundles
-/// (Arch38 A13, mirrors the catalogue CI check in "Distribution & trust
+/// (mirrors the catalogue CI check in "Distribution & trust
 /// model" step 2e). PURE C++17, NO JUCE, NO IO: it inspects a byte image the
 /// caller already read, so the same bytes that were checked are the bytes
 /// that get hashed (A12) and whose path is then dlopened (A11 TOCTOU rule),
@@ -61,7 +61,7 @@
 ///     same scan so a legitimate pipe that trips it is caught before
 ///     publication and can move the constant to __DATA_CONST.
 ///
-/// Known gaps (documented in the Arch38 tracker): the exports trie is not
+/// Known gaps (documented in the RatMode tracker): the exports trie is not
 /// parsed (V1 "only ratpipe_entry exported" is the SDK validator's job, and
 /// RTLD_LOCAL makes extra exports harmless); x86-64 `int 0x80` is not
 /// scanned (32-bit ABI, unusable from a 64-bit dylib).
