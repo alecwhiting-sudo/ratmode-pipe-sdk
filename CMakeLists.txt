@@ -9,7 +9,7 @@
 cmake_minimum_required(VERSION 3.22)
 
 # Must be decided before project(): RatMode is universal and targets macOS 11
-# (Arch38 §7.2), so a bundle that loads in RatMode needs both slices.
+# so a bundle that loads in RatMode needs both slices.
 if (CMAKE_HOST_SYSTEM_NAME STREQUAL "Darwin")
     set(CMAKE_OSX_ARCHITECTURES "x86_64;arm64" CACHE STRING "Build architectures (RatMode is universal)")
     set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS (matches RatMode)")

@@ -1,6 +1,6 @@
 # ratmode-pipe-sdk
 
-> **Developer preview (RatMode 0.1.9+):** build, validate and load your own instrument pipes in Developer mode. The ABI may still gain additive features; the catalogue for reviewed, signed extensions isn't open yet.
+> **Developer preview (RatMode 0.1.9+):** build, validate and load your own instrument pipes in Developer mode. The ABI may still gain additive features; the catalogue for reviewed, signed extensions isn't open yet. Feedback and bug reports welcome: [GitHub Issues](https://github.com/alecwhiting-sudo/ratmode-pipe-sdk/issues).
 
 Build your own **pipes** (drum and melodic voices) for [RatMode](https://divurj.com) as
 native extension bundles. A pipe is a small C-ABI plug-in with no JUCE and no runtime
@@ -11,13 +11,13 @@ enforces, and RatMode runs it in a slot with everything built-in pipes get for f
 Use this repository as a GitHub template (or clone it), add your pipe under `pipes/`,
 and iterate with the command line. MIT licence.
 
-> **Status: milestone 1.** The ABI header, build system, offline host / validator,
+> **Status: developer preview (v0.1.0).** The ABI header, build system, offline host / validator,
 > CLI, C++ helper base (`pipe_base.hpp`), DSP kit, starter templates and two worked
 > examples (`examples/mono_fm_wobble`, `examples/drum_fm_kick`) are in place.
 
 ## What works today / Coming later
 
-**Requirements:** RatMode 0.1.9 or later, macOS 11+, Xcode Command Line Tools, CMake 3.22+, Python 3.
+**Requirements:** RatMode 0.1.9 or later with a licence that reaches CONFIGURE (extensions are assigned there; the free tier does not include it — free developer keys are available on request, see [docs/INSTALL.md](docs/INSTALL.md)), macOS 11+, Xcode Command Line Tools, CMake 3.22+, Python 3. Linux can build, validate and render, but not install.
 
 **What works today**
 
@@ -30,7 +30,7 @@ and iterate with the command line. MIT licence.
 **Coming later**
 
 * Catalogue submission and signing (loading without Developer mode).
-* Poly and chord pipes.
+* Poly and chord pipes (mono and drum only for now).
 * Colour themes from the SDK.
 * Recipes and a Claude skill for generating pipes from a description.
 * Preview images.
@@ -46,7 +46,7 @@ cd ratmode-pipe-sdk
 
 tools/ratpipe build                                                     # host + every example
 tools/ratpipe validate mono_fm_wobble                                   # V1-V13, all green
-tools/ratpipe render mono_fm_wobble --pattern acid16 --out out/wobble.wav   # 8 s at 130 bpm
+tools/ratpipe render mono_fm_wobble --pattern acid16 --out out/wobble.wav   # ~10 s at 130 bpm
 tools/ratpipe install mono_fm_wobble                                    # try it in RatMode (Developer mode)
 ```
 
@@ -129,9 +129,10 @@ plist from your descriptor ([docs/MANIFEST.md](docs/MANIFEST.md)) and ad-hoc sig
 ## Distribution
 
 Bundles you build are for your own testing. RatMode's normal mode loads only bundles
-signed with the RatMode author's Team ID; shipping a pipe means submitting its source
-to the `ratmode-pipes` catalogue, whose CI builds and signs it
-([docs/SIGNING.md](docs/SIGNING.md)).
+signed with the RatMode author's Team ID; shipping a pipe will mean submitting its source
+to a `ratmode-pipes` catalogue (planned, not open yet), whose CI will build and sign it
+([docs/SIGNING.md](docs/SIGNING.md)). Until then, bundles you build are for your own
+testing in Developer mode.
 
 ## Checks that run on every push
 
@@ -145,3 +146,9 @@ bundle.
 
 MIT, see [LICENSE](LICENSE). The ABI header, kit and examples are MIT; RatMode itself
 is not part of this repository.
+
+## Feedback
+
+This is a developer preview. Questions, bug reports and ideas: [open an issue](https://github.com/alecwhiting-sudo/ratmode-pipe-sdk/issues).
+PRs to the SDK itself are welcome. Finished pipes will go to the catalogue once it opens.
+Run `cmake -S . -B build-dev && ctest --test-dir build-dev` to run the SDK's own test suite; `tools/ratpipe build` builds without it.
